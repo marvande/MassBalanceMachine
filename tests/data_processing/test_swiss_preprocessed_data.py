@@ -115,7 +115,7 @@ def test_geodataloader():
 
     data_monthly = process_or_load_data(
         run_flag=False,
-        data_glamos=data_glamos,
+        df=data_glamos,
         paths=paths,
         cfg=cfg,
         vois_climate=vois_climate,
