@@ -79,7 +79,7 @@ def test_swiss_train_geo():
     }
     data_monthly = process_or_load_data(
         run_flag=True,
-        data_glamos=data_glamos,
+        df=data_glamos,
         paths=paths,
         cfg=cfg,
         vois_climate=vois_climate,
