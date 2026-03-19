@@ -743,6 +743,40 @@ def country_folder_for_code(rid: str, code: str) -> str:
     return spec["name"]
 
 
+def resolve_experiment_region_codes(region_code: str, region_groups: dict) -> list[str]:
+    """
+    Expand an experiment region code into atomic source codes.
+    """
+    region_code = str(region_code).upper()
+    return region_groups.get(region_code, [region_code])
+
+
+def code_to_rgi_id(code: str) -> str:
+    """
+    Map a region code to its 2-digit RGI region id when possible.
+    Grouped regions spanning multiple RGI regions return 'MULTI'.
+    """
+    code = str(code).upper()
+
+    mapping = {
+        "ALA": "01",
+        "CAW": "02",
+        "ISL": "06",
+        "SJM": "07",
+        "NOR": "08",
+        "FR": "11",
+        "CH": "11",
+        "IT_AT": "11",
+        "CEU": "11",
+        "USCA": "MULTI",
+    }
+
+    if code not in mapping:
+        raise KeyError(f"Unknown code: {code}")
+
+    return mapping[code]
+
+
 def prepare_monthly_dfs_for_all_regions(
     cfg,
     dfs,
@@ -754,58 +788,105 @@ def prepare_monthly_dfs_for_all_regions(
     only_codes=None,
     test_glaciers_override=None,
     test_glaciers_by_code=None,
+    region_groups=None,
 ):
-    """
-    Logic:
-    - run_flag=False → load everything
-    - run_flag=True & no subset → recompute everything
-    - run_flag=True & subset → recompute subset, load the rest
-    """
-
     results = {}
 
     only_rids_set = {str(r).zfill(2) for r in only_rids} if only_rids else None
-    only_codes_set = {c.upper() for c in only_codes} if only_codes else None
+    only_codes_set = {str(c).upper() for c in only_codes} if only_codes else None
     test_glaciers_override = test_glaciers_override or {}
+    test_glaciers_by_code = test_glaciers_by_code or {}
+    region_groups = region_groups or {}
 
-    # -------------------------------------------------
-    # First pass: determine execution plan
-    # -------------------------------------------------
-    execution_plan = {}  # key -> should_run
+    def is_rgi_key(k):
+        return str(k).isdigit()
 
-    for rid, df_region in dfs.items():
-        rid2 = str(rid).zfill(2)
+    def normalize_key(k):
+        return str(k).upper()
+
+    def codes_from_key(k):
+        """
+        Decide which region codes should actually be processed.
+        If a key is explicitly present in test_glaciers_by_code, process it as-is.
+        """
+        k_norm = normalize_key(k)
+
+        if k_norm in test_glaciers_by_code:
+            return [k_norm]
+
+        if is_rgi_key(k_norm):
+            rid2 = str(k_norm).zfill(2)
+            return [c.upper() for c in codes_for_rgi_region(rid2)]
+
+        return [k_norm]
+
+    def should_recompute(rid2, code):
+        if not run_flag:
+            return False
+
+        if only_rids_set is None and only_codes_set is None:
+            return True
+
+        match_rid = (
+            True
+            if rid2 == "MULTI"
+            else (only_rids_set is None or rid2 in only_rids_set)
+        )
+        match_code = only_codes_set is None or code in only_codes_set
+        return match_rid and match_code
+
+    jobs = []
+
+    for region_key, df_region in dfs.items():
         if df_region is None or len(df_region) == 0:
             continue
 
-        codes = [c.upper() for c in codes_for_rgi_region(rid2)]
+        region_codes = codes_from_key(region_key)
+        has_source = "SOURCE_CODE" in df_region.columns
+        region_key_norm = normalize_key(region_key)
 
-        for code in codes:
+        for code in region_codes:
+            rid2 = code_to_rgi_id(code)
 
-            if not run_flag:
-                should_run = False
+            # grouped/final region: keep whole dataframe
+            if code == region_key_norm and code in test_glaciers_by_code:
+                df_sub = df_region.copy()
+
+            # atomic slicing
+            elif has_source:
+                df_sub = df_region[
+                    df_region["SOURCE_CODE"].astype(str).str.upper() == code
+                ].copy()
+
             else:
-                if only_rids_set is None and only_codes_set is None:
-                    should_run = True
-                else:
-                    match_rid = only_rids_set is None or rid2 in only_rids_set
-                    match_code = only_codes_set is None or code in only_codes_set
-                    should_run = match_rid and match_code
+                df_sub = df_region.copy()
 
-            key = f"{rid2}_{code}"
-            execution_plan[key] = should_run
+            if len(df_sub) == 0:
+                logging.warning(
+                    f"[{region_key} -> {rid2}_{code}] No rows found after slicing, skipping."
+                )
+                continue
 
-    # -------------------------------------------------
-    # Log summary
-    # -------------------------------------------------
-    recompute_keys = [k for k, v in execution_plan.items() if v]
-    load_keys = [k for k, v in execution_plan.items() if not v]
+            jobs.append(
+                {
+                    "input_key": region_key,
+                    "rid2": rid2,
+                    "region_id_int": None if rid2 == "MULTI" else int(rid2),
+                    "code": code,
+                    "df_sub": df_sub,
+                    "key": code if rid2 == "MULTI" else f"{rid2}_{code}",
+                    "should_run": should_recompute(rid2, code),
+                }
+            )
+
+    recompute_keys = [j["key"] for j in jobs if j["should_run"]]
+    load_keys = [j["key"] for j in jobs if not j["should_run"]]
 
     if not run_flag:
         logging.info("Monthly preparation mode: LOAD-ONLY")
     elif not recompute_keys:
         logging.info("Monthly preparation mode: nothing selected for recompute.")
-    elif len(recompute_keys) == len(execution_plan):
+    elif len(recompute_keys) == len(jobs):
         logging.info("Monthly preparation mode: RECOMPUTE ALL")
     else:
         logging.info("Monthly preparation mode: PARTIAL RECOMPUTE")
@@ -813,61 +894,53 @@ def prepare_monthly_dfs_for_all_regions(
     logging.info(f"Recompute ({len(recompute_keys)}): {sorted(recompute_keys)}")
     logging.info(f"Load      ({len(load_keys)}): {sorted(load_keys)}")
 
-    # -------------------------------------------------
-    # Second pass: actual execution
-    # -------------------------------------------------
-    for rid, df_region in dfs.items():
-        rid2 = str(rid).zfill(2)
+    for job in jobs:
+        rid2 = job["rid2"]
+        code = job["code"]
+        key = job["key"]
+        df_sub = job["df_sub"]
+        should_run = job["should_run"]
 
-        if df_region is None or len(df_region) == 0:
-            logging.warning(f"Skipping RGI {rid2}: empty dataframe")
-            continue
+        test_glaciers = test_glaciers_override.get(
+            code,
+            test_glaciers_by_code.get(code, []),
+        )
 
-        region_id_int = int(rid2)
-        codes = [c.upper() for c in codes_for_rgi_region(rid2)]
-        has_source = "SOURCE_CODE" in df_region.columns
+        paths_ = paths.copy()
 
-        for code in codes:
-            key = f"{rid2}_{code}"
-            should_run = execution_plan[key]
+        def csv_path_for_code(cfg, code):
+            code = str(code).upper()
 
-            # Slice df
-            if has_source:
-                df_sub = df_region[df_region["SOURCE_CODE"] == code].copy()
-            else:
-                df_sub = df_region.copy()
+            if code in {"CEU", "USCA"}:
+                return os.path.join(cfg.dataPath, path_PMB_WGMS_csv, code, "csv")
 
-            if len(df_sub) == 0:
-                logging.warning(f"[{key}] No rows found, skipping.")
-                continue
-
-            # Override test glaciers if requested
-            test_glaciers = test_glaciers_override.get(
-                code, test_glaciers_by_code.get(code, [])
-            )
-
-            # Resolve country folder
+            rid2 = code_to_rgi_id(code)
             country = country_folder_for_code(rid2, code)
 
-            paths_ = paths.copy()
-            paths_["csv_path"] = os.path.join(
-                cfg.dataPath, path_PMB_WGMS_csv, country, "csv"
-            )
+            path = os.path.join(cfg.dataPath, path_PMB_WGMS_csv, country, "csv")
+            # make sure the path exists
+            os.makedirs(path, exist_ok=True)
+            return path
 
-            logging.info(f"Processing {key} (country={country}, run_flag={should_run})")
+        paths_["csv_path"] = csv_path_for_code(cfg, code)
+        country = code
 
-            res = prepare_monthly_dfs_with_padding(
-                cfg=cfg,
-                df_region=df_sub,
-                region_name=code,
-                region_id=region_id_int,
-                paths=paths_,
-                test_glaciers=test_glaciers,
-                vois_climate=vois_climate,
-                vois_topographical=vois_topographical,
-                run_flag=should_run,
-            )
+        logging.info(
+            f"Processing {key} (input={job['input_key']}, country={country}, run_flag={should_run})"
+        )
 
-            results[key] = res
+        res = prepare_monthly_dfs_with_padding(
+            cfg=cfg,
+            df_region=df_sub,
+            region_name=code,
+            region_id=job["region_id_int"],
+            paths=paths_,
+            test_glaciers=test_glaciers,
+            vois_climate=vois_climate,
+            vois_topographical=vois_topographical,
+            run_flag=should_run,
+        )
+
+        results[code] = res
 
     return results

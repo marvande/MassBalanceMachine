@@ -1266,20 +1266,18 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
 
 
 def glacier_level_features(
-    df_isl: pd.DataFrame,
+    df: pd.DataFrame,
     glacier_col="GLACIER",
     year_col="YEAR",
 ):
-    d = df_isl.copy()
+    d = df.copy()
 
-    # --- handle circular aspect properly ---
+    # circular aspect
     aspect_deg = d["aspect"].astype(float) % 360.0
     aspect_rad = np.deg2rad(aspect_deg)
-
     d["_asp_sin"] = np.sin(aspect_rad)
     d["_asp_cos"] = np.cos(aspect_rad)
 
-    # glacier-level summaries
     g = d.groupby(glacier_col).agg(
         nrows=(glacier_col, "size"),
         nyears=(year_col, pd.Series.nunique),
@@ -1288,31 +1286,45 @@ def glacier_level_features(
         svf_mean=("svf", "mean"),
         asp_sin_mean=("_asp_sin", "mean"),
         asp_cos_mean=("_asp_cos", "mean"),
+        # --- new ---
+        elev_diff_mean=("ELEVATION_DIFFERENCE", "mean"),
+        elev_diff_std=("ELEVATION_DIFFERENCE", "std"),
+        t2m_mean=("t2m", "mean"),
+        t2m_std=("t2m", "std"),
+        tp_mean=("tp", "mean"),
+        tp_std=("tp", "std"),
     )
 
     return g.reset_index()
 
 
 def holdout_split_cluster_stratified(
-    df_isl,
+    df,
     holdout_frac=0.30,
     seed=40,
-    n_clusters=6,  # start conservative; increase if many glaciers
+    n_clusters=6,
 ):
-    gfeat = glacier_level_features(df_isl)
+    gfeat = glacier_level_features(df)
 
-    # feature space for clustering
     feat_cols = [
         "slope_mean",
         "slope_std",
         "svf_mean",
         "asp_sin_mean",
         "asp_cos_mean",
-        "nyears",  # optional but stabilizes split
-        "nrows",  # optional but stabilizes split
+        "nyears",
+        "nrows",
+        # --- new ---
+        "elev_diff_mean",
+        "elev_diff_std",
+        "t2m_mean",
+        "t2m_std",
+        "tp_mean",
+        "tp_std",
     ]
 
-    X = gfeat[feat_cols].astype(float).fillna(gfeat[feat_cols].median())
+    X = gfeat[feat_cols].astype(float)
+    X = X.fillna(X.median())
 
     scaler = StandardScaler()
     Xs = scaler.fit_transform(X)
@@ -1323,7 +1335,6 @@ def holdout_split_cluster_stratified(
     rng = np.random.default_rng(seed)
     holdout = []
 
-    # stratified sampling per cluster
     for c, sub in gfeat.groupby("cluster"):
         gls = sub["GLACIER"].to_numpy()
         rng.shuffle(gls)
@@ -1333,8 +1344,8 @@ def holdout_split_cluster_stratified(
     holdout_glaciers = set(holdout)
     pool_glaciers = set(gfeat["GLACIER"]) - holdout_glaciers
 
-    df_holdout = df_isl[df_isl["GLACIER"].isin(holdout_glaciers)].copy()
-    df_pool = df_isl[df_isl["GLACIER"].isin(pool_glaciers)].copy()
+    df_holdout = df[df["GLACIER"].isin(holdout_glaciers)].copy()
+    df_pool = df[df["GLACIER"].isin(pool_glaciers)].copy()
 
     summary = {
         "holdout_frac": holdout_frac,

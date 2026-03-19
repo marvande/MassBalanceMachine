@@ -12,6 +12,7 @@ import torch
 from datetime import datetime
 
 from regions.TF_Europe.scripts.plotting import *
+from regions.TF_Europe.scripts.dataset import code_to_rgi_id
 
 
 def get_best_params_for_lstm(
@@ -203,15 +204,78 @@ def iter_dataset_keys_from_config(RGI_REGIONS: dict):
             yield f"{rid2}_{spec['code'].upper()}"
 
 
+def build_dataset_keys(
+    RGI_REGIONS: dict,
+    experiment_region_groups: dict | None = None,
+    include_atomic: bool = True,
+    include_groups: bool = True,
+    group_key_mode: str = "code",
+):
+    """
+    Build dataset keys for atomic and optionally grouped regions.
+
+    Returns examples like:
+        atomic: ['01_ALA', '02_CAW', '11_CH', '11_FR', '11_IT_AT', ...]
+        grouped: ['11_CEU', 'USCA']
+
+    Parameters
+    ----------
+    group_key_mode : {"code", "rid_code"}
+        - "code": grouped keys are like 'CEU', 'USCA'
+        - "rid_code": grouped keys are like '11_CEU', 'MULTI_USCA'
+    """
+    keys = []
+
+    if include_atomic:
+        for rid, meta in sorted(RGI_REGIONS.items(), key=lambda x: str(x[0]).zfill(2)):
+            rid2 = str(rid).zfill(2)
+
+            sub_codes = meta.get("subregions_codes", [])
+            if sub_codes:
+                for code in sub_codes:
+                    keys.append(f"{rid2}_{str(code).upper()}")
+            else:
+                code = str(meta["code"]).upper()
+                keys.append(f"{rid2}_{code}")
+
+    if include_groups and experiment_region_groups:
+        for group_code, atomic_codes in sorted(experiment_region_groups.items()):
+            group_code = str(group_code).upper()
+            atomic_codes = [str(c).upper() for c in atomic_codes]
+
+            rids = sorted({str(code_to_rgi_id(c)).zfill(2) for c in atomic_codes})
+
+            if group_key_mode == "code":
+                keys.append(group_code)
+            elif group_key_mode == "rid_code":
+                if len(rids) == 1:
+                    keys.append(f"{rids[0]}_{group_code}")
+                else:
+                    keys.append(f"MULTI_{group_code}")
+            else:
+                raise ValueError("group_key_mode must be 'code' or 'rid_code'")
+
+    return sorted(set(keys))
+
+
 def build_lstm_params_by_key(
     default_params: dict,
     log_path_gs_results: dict,  # keyed by CODE only
     RGI_REGIONS: dict,
+    experiment_region_groups: dict | None = None,
     select_by: str = "avg_test_loss",
+    include_atomic: bool = True,
+    include_groups: bool = True,
+    group_key_mode: str = "code",
 ):
     """
     Returns dict:
-        'RID_CODE' -> params dict
+        dataset_key -> params dict
+
+    Examples of dataset_key:
+        atomic: '01_ALA', '11_CH'
+        grouped: 'CEU', 'USCA'   (group_key_mode='code')
+                 '11_CEU', 'MULTI_USCA' (group_key_mode='rid_code')
 
     If a grid-search log exists for the CODE,
     best params override defaults.
@@ -219,8 +283,21 @@ def build_lstm_params_by_key(
 
     params_by_key = {}
 
-    for key in sorted(iter_dataset_keys_from_config(RGI_REGIONS)):
-        rid, code = key.split("_", 1)
+    dataset_keys = build_dataset_keys(
+        RGI_REGIONS=RGI_REGIONS,
+        experiment_region_groups=experiment_region_groups,
+        include_atomic=include_atomic,
+        include_groups=include_groups,
+        group_key_mode=group_key_mode,
+    )
+
+    for key in dataset_keys:
+        if "_" in key:
+            _, code = key.split("_", 1)
+        else:
+            code = key
+
+        code = str(code).upper()
 
         params = copy.deepcopy(default_params)
         log_path = log_path_gs_results.get(code)

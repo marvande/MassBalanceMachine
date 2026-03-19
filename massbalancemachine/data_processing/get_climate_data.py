@@ -341,64 +341,6 @@ def _add_date_range(df: pd.DataFrame, months_tail_pad, months_head_pad) -> pd.Da
     return df
 
 
-# def _process_climate_data(
-#     ds_climate: xr.Dataset,
-#     df: pd.DataFrame,
-#     months_tail_pad,
-#     months_head_pad,
-# ) -> pd.DataFrame:
-#     """Process climate data for all points and times."""
-
-#     # Create DataArrays for latitude and longitude
-#     lat_da = xr.DataArray(df["POINT_LAT"].values, dims="points")
-#     lon_da = xr.DataArray(df["POINT_LON"].values, dims="points")
-
-#     # Create a 2D array of dates ranges
-#     date_array = np.array([r.values for r in df["range_date"].values])
-#     time_da = xr.DataArray(date_array, dims=["points", "time"])
-
-#     climate_data_points = ds_climate.sel(
-#         latitude=lat_da,
-#         longitude=lon_da,
-#         time=time_da,
-#         method="nearest",
-#     )
-
-#     # Handle new netcdf format where number and expver are coordinates
-#     dropColumns = ["latitude", "longitude"]
-#     if "number" in climate_data_points.coords:
-#         dropColumns.append("number")
-#     if "expver" in climate_data_points.coords:
-#         dropColumns.append("expver")
-
-#     # Create a dataframe from the DataArray
-#     climate_df = (
-#         climate_data_points.to_dataframe().drop(columns=dropColumns).reset_index()
-#     )
-
-#     # Drop columns
-#     climate_df = climate_df.drop(columns=["points", "time"])
-
-#     # Get the number of rows and columns
-#     num_rows, num_cols = climate_df.shape
-
-#     # Reshape the DataFrame to a 3D array (groups, 12, columns)
-#     N_MONTHS = date_array.shape[1]
-#     reshaped_array = climate_df.to_numpy().reshape(-1, N_MONTHS, num_cols)
-
-#     # Transpose and reshape to get the desired flattening effect
-#     result_array = reshaped_array.transpose(0, 2, 1).reshape(-1, N_MONTHS * num_cols)
-
-#     # Convert back to a DataFrame if needed
-#     result_df = pd.DataFrame(result_array)
-#     # Set the new column names for the dataframe (climate variables X months
-#     # of the hydrological year)
-#     result_df.columns = _generate_climate_variable_names(
-#         ds_climate, months_tail_pad, months_head_pad
-#     )
-#     return result_df
-
-
 def _process_climate_data(
     ds_climate: xr.Dataset,
     df: pd.DataFrame,

@@ -335,46 +335,200 @@ def build_or_load_lstm_for_key(
     return ds_train, ds_test, train_idx, val_idx
 
 
+import copy
+import logging
+import pandas as pd
+
+
+def merge_monthly_results_for_group(res_parts: list[dict], group_key: str = "") -> dict:
+    """
+    Merge several atomic monthly-preparation result dicts into one grouped result.
+
+    Strategy
+    --------
+    - For keys whose values are pandas DataFrames in all parts:
+      concatenate row-wise.
+    - For non-DataFrame values:
+      keep the first non-None value.
+    - If a key is missing in some parts, it is ignored unless present in all.
+
+    Notes
+    -----
+    This assumes the atomic result dicts returned by prepare_monthly_dfs_with_padding
+    have matching structure and compatible dataframe columns.
+    """
+    res_parts = [r for r in res_parts if r is not None]
+    if len(res_parts) == 0:
+        raise ValueError(f"No monthly results to merge for group '{group_key}'")
+
+    merged = {}
+
+    # keys shared by all atomic result dicts
+    common_keys = set(res_parts[0].keys())
+    for r in res_parts[1:]:
+        common_keys &= set(r.keys())
+
+    for k in sorted(common_keys):
+        vals = [r[k] for r in res_parts]
+
+        # Case 1: all are DataFrames -> concat
+        if all(isinstance(v, pd.DataFrame) for v in vals):
+            try:
+                merged[k] = pd.concat(vals, axis=0, ignore_index=True)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to concat DataFrame key '{k}' for group '{group_key}'"
+                ) from e
+
+        # Case 2: all are None
+        elif all(v is None for v in vals):
+            merged[k] = None
+
+        # Case 3: keep first non-None metadata object
+        else:
+            first_non_none = next((v for v in vals if v is not None), None)
+            merged[k] = copy.deepcopy(first_non_none)
+
+    return merged
+
+
+def atomic_res_key_from_code(res_all: dict, code: str) -> str:
+    """
+    Find the atomic res_all key corresponding to one atomic code.
+
+    Example
+    -------
+    code='CH' -> '11_CH'
+    code='ALA' -> '01_ALA'
+    """
+    code = str(code).upper()
+
+    matches = [k for k in res_all.keys() if str(k).upper().endswith(f"_{code}")]
+    if len(matches) == 0:
+        raise KeyError(f"No atomic res_all key found for code '{code}'")
+    if len(matches) > 1:
+        raise KeyError(
+            f"Multiple atomic res_all keys found for code '{code}': {matches}"
+        )
+    return matches[0]
+
+
 def build_or_load_lstm_all(
     cfg,
-    res_all: dict,  # e.g. {"07_SJM": res, "08_NOR": res, ...}
+    res_all: dict,  # atomic monthly results, e.g. {"11_CH": ..., "01_ALA": ...}
     MONTHLY_COLS,
     STATIC_COLS,
     cache_dir="logs/LSTM_cache",
-    only_keys=None,  # e.g. ["08_NOR"] to recompute only Norway
-    force_recompute=False,  # global default
+    only_keys=None,
+    force_recompute=False,
     val_ratio=0.2,
+    experiment_region_groups=None,
+    include_atomic=True,
+    include_groups=False,
 ):
+    """
+    Build/load LSTM assets for atomic regions and optional experiment groups.
+
+    Parameters
+    ----------
+    res_all : dict
+        Atomic monthly-preparation outputs keyed like '11_CH', '01_ALA', ...
+    experiment_region_groups : dict, optional
+        Example:
+            {"CEU": ["FR", "CH", "IT_AT"], "USCA": ["ALA", "CAW"]}
+    include_atomic : bool
+        Whether to also build atomic assets.
+    include_groups : bool
+        Whether to build grouped assets by concatenating monthly result dataframes.
+    """
     outputs = {}
-    only_keys_set = set(only_keys) if only_keys else None
+    only_keys_set = {str(k).upper() for k in only_keys} if only_keys else None
+    experiment_region_groups = experiment_region_groups or {}
 
-    for key, res in res_all.items():
-        if res is None:
-            continue
+    # -----------------------------
+    # 1) Atomic assets
+    # -----------------------------
+    if include_atomic:
+        for key, res in res_all.items():
+            if res is None:
+                continue
 
-        # recompute only some keys; others load if possible
-        fr = force_recompute
-        if only_keys_set is not None:
-            fr = key in only_keys_set
+            key_norm = str(key).upper()
+            fr = (
+                force_recompute
+                if only_keys_set is None
+                else (key_norm in only_keys_set)
+            )
 
-        logging.info(f"\nLSTM prep: {key} (force_recompute={fr})")
+            logging.info(f"\nLSTM prep (atomic): {key_norm} (force_recompute={fr})")
 
-        ds_train, ds_test, train_idx, val_idx = build_or_load_lstm_for_key(
-            cfg=cfg,
-            key=key,
-            res=res,
-            MONTHLY_COLS=MONTHLY_COLS,
-            STATIC_COLS=STATIC_COLS,
-            val_ratio=val_ratio,
-            cache_dir=cache_dir,
-            force_recompute=fr,
-        )
+            ds_train, ds_test, train_idx, val_idx = build_or_load_lstm_for_key(
+                cfg=cfg,
+                key=key_norm,
+                res=res,
+                MONTHLY_COLS=MONTHLY_COLS,
+                STATIC_COLS=STATIC_COLS,
+                val_ratio=val_ratio,
+                cache_dir=cache_dir,
+                force_recompute=fr,
+            )
 
-        outputs[key] = {
-            "ds_train": ds_train,
-            "ds_test": ds_test,
-            "train_idx": train_idx,
-            "val_idx": val_idx,
-        }
+            outputs[key_norm] = {
+                "ds_train": ds_train,
+                "ds_test": ds_test,
+                "train_idx": train_idx,
+                "val_idx": val_idx,
+            }
+
+    # -----------------------------
+    # 2) Grouped assets
+    # -----------------------------
+    if include_groups:
+        for group_key, codes in experiment_region_groups.items():
+            group_key = str(group_key).upper()
+            codes = [str(c).upper() for c in codes]
+
+            fr = (
+                force_recompute
+                if only_keys_set is None
+                else (group_key in only_keys_set)
+            )
+
+            atomic_keys = []
+            res_parts = []
+
+            for code in codes:
+                atomic_key = atomic_res_key_from_code(res_all, code)
+                atomic_keys.append(atomic_key)
+                res_parts.append(res_all[atomic_key])
+
+            logging.info(
+                f"\nLSTM prep (group): {group_key} from {atomic_keys} "
+                f"(force_recompute={fr})"
+            )
+
+            merged_res = merge_monthly_results_for_group(
+                res_parts=res_parts,
+                group_key=group_key,
+            )
+
+            ds_train, ds_test, train_idx, val_idx = build_or_load_lstm_for_key(
+                cfg=cfg,
+                key=group_key,
+                res=merged_res,
+                MONTHLY_COLS=MONTHLY_COLS,
+                STATIC_COLS=STATIC_COLS,
+                val_ratio=val_ratio,
+                cache_dir=cache_dir,
+                force_recompute=fr,
+            )
+
+            outputs[group_key] = {
+                "ds_train": ds_train,
+                "ds_test": ds_test,
+                "train_idx": train_idx,
+                "val_idx": val_idx,
+                "atomic_keys": atomic_keys,
+            }
 
     return outputs

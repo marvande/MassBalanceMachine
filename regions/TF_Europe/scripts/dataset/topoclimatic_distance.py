@@ -89,6 +89,9 @@ def compute_topoclimatic_distances(
     scaler: StandardScaler,
     seed: int,
     energy_max_samples: int = 4000,
+    exclude_cols: list[str] | None = None,
+    topo_cols: list[str] | None = None,
+    climate_cols: list[str] | None = None,
 ) -> dict:
     """
     Compute topoclimatic distances in a globally standardized feature space.
@@ -98,6 +101,7 @@ def compute_topoclimatic_distances(
       - src vs holdout
       - pool vs holdout
       - src vs tgt_all (pool ∪ holdout)
+      - optionally: topo-only and climate-only subsets of the above
 
     Parameters
     ----------
@@ -111,17 +115,25 @@ def compute_topoclimatic_distances(
         Random seed for energy-distance subsampling.
     energy_max_samples : int
         Max number of samples per set for energy distance.
+    exclude_cols : list[str] | None
+        Features to exclude from feature_cols before computation.
+    topo_cols : list[str] | None
+        Subset of feature_cols for topo-only distances. If None, skipped.
+    climate_cols : list[str] | None
+        Subset of feature_cols for climate-only distances. If None, skipped.
 
     Returns
     -------
     dict
     """
+    effective_cols = [f for f in feature_cols if f not in (exclude_cols or [])]
+
     df_tgt_all = pd.concat([df_pool, df_holdout], axis=0, ignore_index=True)
 
-    Xs = to_feature_matrix(df_src, feature_cols, dropna=True)
-    Xp = to_feature_matrix(df_pool, feature_cols, dropna=True)
-    Xh = to_feature_matrix(df_holdout, feature_cols, dropna=True)
-    Xt = to_feature_matrix(df_tgt_all, feature_cols, dropna=True)
+    Xs = to_feature_matrix(df_src, effective_cols, dropna=True)
+    Xp = to_feature_matrix(df_pool, effective_cols, dropna=True)
+    Xh = to_feature_matrix(df_holdout, effective_cols, dropna=True)
+    Xt = to_feature_matrix(df_tgt_all, effective_cols, dropna=True)
 
     if Xs.size == 0 or Xp.size == 0 or Xh.size == 0 or Xt.size == 0:
         return {
@@ -165,7 +177,7 @@ def compute_topoclimatic_distances(
     d_wass_pool_hold = wasserstein_distance_multivariate(Xp_z, Xh_z)
     d_wass_src_tgt = wasserstein_distance_multivariate(Xs_z, Xt_z)
 
-    return {
+    out = {
         "n_src": int(Xs.shape[0]),
         "n_pool": int(Xp.shape[0]),
         "n_holdout": int(Xh.shape[0]),
@@ -180,6 +192,108 @@ def compute_topoclimatic_distances(
         "D_wass_src_tgt_all": float(d_wass_src_tgt),
     }
 
+    # --- topo-only distances ---
+    if topo_cols:
+        topo_idx = [effective_cols.index(f) for f in topo_cols if f in effective_cols]
+        if topo_idx:
+            out["D_energy_src_pool_topo"] = float(
+                energy_distance(
+                    Xs_z[:, topo_idx],
+                    Xp_z[:, topo_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 10,
+                )
+            )
+            out["D_energy_src_holdout_topo"] = float(
+                energy_distance(
+                    Xs_z[:, topo_idx],
+                    Xh_z[:, topo_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 11,
+                )
+            )
+            out["D_energy_pool_holdout_topo"] = float(
+                energy_distance(
+                    Xp_z[:, topo_idx],
+                    Xh_z[:, topo_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 12,
+                )
+            )
+            out["D_energy_src_tgt_all_topo"] = float(
+                energy_distance(
+                    Xs_z[:, topo_idx],
+                    Xt_z[:, topo_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 13,
+                )
+            )
+            out["D_wass_src_pool_topo"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, topo_idx], Xp_z[:, topo_idx])
+            )
+            out["D_wass_src_holdout_topo"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, topo_idx], Xh_z[:, topo_idx])
+            )
+            out["D_wass_pool_holdout_topo"] = float(
+                wasserstein_distance_multivariate(Xp_z[:, topo_idx], Xh_z[:, topo_idx])
+            )
+            out["D_wass_src_tgt_all_topo"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, topo_idx], Xt_z[:, topo_idx])
+            )
+
+    # --- climate-only distances ---
+    if climate_cols:
+        clim_idx = [
+            effective_cols.index(f) for f in climate_cols if f in effective_cols
+        ]
+        if clim_idx:
+            out["D_energy_src_pool_clim"] = float(
+                energy_distance(
+                    Xs_z[:, clim_idx],
+                    Xp_z[:, clim_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 20,
+                )
+            )
+            out["D_energy_src_holdout_clim"] = float(
+                energy_distance(
+                    Xs_z[:, clim_idx],
+                    Xh_z[:, clim_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 21,
+                )
+            )
+            out["D_energy_pool_holdout_clim"] = float(
+                energy_distance(
+                    Xp_z[:, clim_idx],
+                    Xh_z[:, clim_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 22,
+                )
+            )
+            out["D_energy_src_tgt_all_clim"] = float(
+                energy_distance(
+                    Xs_z[:, clim_idx],
+                    Xt_z[:, clim_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 23,
+                )
+            )
+            out["D_wass_src_pool_clim"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, clim_idx], Xp_z[:, clim_idx])
+            )
+            out["D_wass_src_holdout_clim"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, clim_idx], Xh_z[:, clim_idx])
+            )
+            out["D_wass_pool_holdout_clim"] = float(
+                wasserstein_distance_multivariate(Xp_z[:, clim_idx], Xh_z[:, clim_idx])
+            )
+            out["D_wass_src_tgt_all_clim"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, clim_idx], Xt_z[:, clim_idx])
+            )
+
+    return out
+
 
 def compute_topoclimatic_distances_sets(
     df_src: pd.DataFrame,
@@ -189,6 +303,9 @@ def compute_topoclimatic_distances_sets(
     seed: int,
     df_holdout: pd.DataFrame | None = None,
     energy_max_samples: int = 4000,
+    exclude_cols: list[str] | None = None,
+    topo_cols: list[str] | None = None,
+    climate_cols: list[str] | None = None,
 ) -> dict:
     """
     Compute multivariate topoclimatic distances between source, fine-tuning,
@@ -212,18 +329,26 @@ def compute_topoclimatic_distances_sets(
         hold-out set are also computed.
     energy_max_samples : int, default=4000
         Maximum number of samples used inside the energy distance computation.
+    exclude_cols : list[str] | None
+        Features to exclude from feature_cols before computation.
+    topo_cols : list[str] | None
+        Subset of feature_cols for topo-only distances. If None, skipped.
+    climate_cols : list[str] | None
+        Subset of feature_cols for climate-only distances. If None, skipped.
 
     Returns
     -------
     dict
         Dictionary containing sample counts and pairwise distances.
     """
-    Xs = to_feature_matrix(df_src, feature_cols, dropna=True)
-    Xf = to_feature_matrix(df_ft, feature_cols, dropna=True)
+    effective_cols = [f for f in feature_cols if f not in (exclude_cols or [])]
+
+    Xs = to_feature_matrix(df_src, effective_cols, dropna=True)
+    Xf = to_feature_matrix(df_ft, effective_cols, dropna=True)
 
     Xh = None
     if df_holdout is not None:
-        Xh = to_feature_matrix(df_holdout, feature_cols, dropna=True)
+        Xh = to_feature_matrix(df_holdout, effective_cols, dropna=True)
 
     out = {
         "n_src": int(Xs.shape[0]),
@@ -237,7 +362,6 @@ def compute_topoclimatic_distances_sets(
         "D_wass_src_holdout": np.nan,
     }
 
-    # Need at least src and ft to do anything
     if Xs.size == 0 or Xf.size == 0:
         return out
 
@@ -249,6 +373,7 @@ def compute_topoclimatic_distances_sets(
     )
     out["D_wass_src_ft"] = float(wasserstein_distance_multivariate(Xs_z, Xf_z))
 
+    Xh_z = None
     if Xh is not None and Xh.size > 0:
         Xh_z = scaler.transform(Xh)
 
@@ -256,10 +381,97 @@ def compute_topoclimatic_distances_sets(
             energy_distance(Xf_z, Xh_z, max_samples=energy_max_samples, seed=seed + 202)
         )
         out["D_wass_ft_holdout"] = float(wasserstein_distance_multivariate(Xf_z, Xh_z))
-
         out["D_energy_src_holdout"] = float(
             energy_distance(Xs_z, Xh_z, max_samples=energy_max_samples, seed=seed + 303)
         )
         out["D_wass_src_holdout"] = float(wasserstein_distance_multivariate(Xs_z, Xh_z))
+
+    # --- topo-only distances ---
+    if topo_cols:
+        topo_idx = [effective_cols.index(f) for f in topo_cols if f in effective_cols]
+        if topo_idx:
+            out["D_energy_src_ft_topo"] = float(
+                energy_distance(
+                    Xs_z[:, topo_idx],
+                    Xf_z[:, topo_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 110,
+                )
+            )
+            out["D_wass_src_ft_topo"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, topo_idx], Xf_z[:, topo_idx])
+            )
+            if Xh_z is not None:
+                out["D_energy_ft_holdout_topo"] = float(
+                    energy_distance(
+                        Xf_z[:, topo_idx],
+                        Xh_z[:, topo_idx],
+                        max_samples=energy_max_samples,
+                        seed=seed + 211,
+                    )
+                )
+                out["D_wass_ft_holdout_topo"] = float(
+                    wasserstein_distance_multivariate(
+                        Xf_z[:, topo_idx], Xh_z[:, topo_idx]
+                    )
+                )
+                out["D_energy_src_holdout_topo"] = float(
+                    energy_distance(
+                        Xs_z[:, topo_idx],
+                        Xh_z[:, topo_idx],
+                        max_samples=energy_max_samples,
+                        seed=seed + 312,
+                    )
+                )
+                out["D_wass_src_holdout_topo"] = float(
+                    wasserstein_distance_multivariate(
+                        Xs_z[:, topo_idx], Xh_z[:, topo_idx]
+                    )
+                )
+
+    # --- climate-only distances ---
+    if climate_cols:
+        clim_idx = [
+            effective_cols.index(f) for f in climate_cols if f in effective_cols
+        ]
+        if clim_idx:
+            out["D_energy_src_ft_clim"] = float(
+                energy_distance(
+                    Xs_z[:, clim_idx],
+                    Xf_z[:, clim_idx],
+                    max_samples=energy_max_samples,
+                    seed=seed + 120,
+                )
+            )
+            out["D_wass_src_ft_clim"] = float(
+                wasserstein_distance_multivariate(Xs_z[:, clim_idx], Xf_z[:, clim_idx])
+            )
+            if Xh_z is not None:
+                out["D_energy_ft_holdout_clim"] = float(
+                    energy_distance(
+                        Xf_z[:, clim_idx],
+                        Xh_z[:, clim_idx],
+                        max_samples=energy_max_samples,
+                        seed=seed + 221,
+                    )
+                )
+                out["D_wass_ft_holdout_clim"] = float(
+                    wasserstein_distance_multivariate(
+                        Xf_z[:, clim_idx], Xh_z[:, clim_idx]
+                    )
+                )
+                out["D_energy_src_holdout_clim"] = float(
+                    energy_distance(
+                        Xs_z[:, clim_idx],
+                        Xh_z[:, clim_idx],
+                        max_samples=energy_max_samples,
+                        seed=seed + 322,
+                    )
+                )
+                out["D_wass_src_holdout_clim"] = float(
+                    wasserstein_distance_multivariate(
+                        Xs_z[:, clim_idx], Xh_z[:, clim_idx]
+                    )
+                )
 
     return out

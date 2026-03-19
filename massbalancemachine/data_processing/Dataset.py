@@ -628,7 +628,6 @@ class MBSequenceDataset(Dataset):
             T=T,
             show_progress=show_progress,
             expect_target=expect_target,
-            # NEW:
             probe_cols=probe_cols,
         )
         return cls(data_dict, normalize_target=normalize_target)

@@ -643,15 +643,18 @@ def evaluate_all_models(
     for j in range(len(keys), n_slots):
         axes[j].axis("off")
 
-    for j in range(3):
-        axes[j].set_xlabel("")
-    for j in range(6):
-        if j == 0 or j == 3:
-            axes[j].set_ylabel("Modeled PMB [m w.e.]")
-        else:
-            axes[j].set_ylabel("")
+    for idx, ax in enumerate(axes[:n_slots]):
+        row = idx // ncols
+        col = idx % ncols
 
-    fig_grid.suptitle("Pred vs Truth (Test) — All Regions", fontsize=20)
+        if row < nrows - 1:
+            ax.set_xlabel("")
+        if col == 0:
+            ax.set_ylabel("Modeled PMB [m w.e.]")
+        else:
+            ax.set_ylabel("")
+
+    fig_grid.suptitle("Pred vs Truth (Test) — All Datasets", fontsize=20)
     fig_grid.tight_layout()
 
     if save_abs:
