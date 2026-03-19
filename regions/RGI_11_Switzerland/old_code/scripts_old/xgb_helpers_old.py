@@ -18,7 +18,7 @@ import xarray as xr
 import numpy as np
 from tqdm.notebook import tqdm
 
-from regions.Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.config_CH import *
 
 
 def correct_for_biggest_grid(df, group_columns, value_column="value"):

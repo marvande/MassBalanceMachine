@@ -1,9 +1,11 @@
 import os
 import pytest
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.dataset.data_loader import (
+from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+    get_geodetic_MB,
+)
+from regions.RGI_11_Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
     get_stakes_data,

@@ -22,10 +22,10 @@ from tqdm import tqdm
 import massbalancemachine as mbm
 from oggm import utils, workflow, tasks
 from oggm import cfg as oggmCfg
-from regions.Switzerland.scripts.wgs84_ch1903 import *
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.helpers import *
-from regions.Switzerland.scripts.geodata import (
+from regions.RGI_11_Switzerland.scripts.wgs84_ch1903 import *
+from regions.RGI_11_Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.helpers import *
+from regions.RGI_11_Switzerland.scripts.geodata import (
     LV03toWGS84,
     xr_SGI_masked_topo,
     coarsenDS,

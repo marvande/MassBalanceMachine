@@ -11,7 +11,7 @@ from tqdm import tqdm
 from pandas.api.types import CategoricalDtype
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.plots import *
+from regions.RGI_11_Switzerland.scripts.plots import *
 
 
 def plot_training_history(history, skip_first_n=0, save=True):

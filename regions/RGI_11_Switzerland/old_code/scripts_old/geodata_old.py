@@ -18,8 +18,8 @@ import warnings
 from rasterio.transform import from_bounds
 
 # Project-specific imports
-from regions.Switzerland.scripts.config_CH import *
-from regions.Switzerland.scripts.wgs84_ch1903 import *
+from regions.RGI_11_Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.wgs84_ch1903 import *
 
 
 def LV03toLV95(df):

@@ -26,8 +26,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import string
-from regions.Switzerland.scripts.geodata import *
-from regions.Switzerland.scripts.helpers import *
+from regions.RGI_11_Switzerland.scripts.geodata import *
+from regions.RGI_11_Switzerland.scripts.helpers import *
 
 colors = get_cmap_hex(cm.batlow, 10)
 color_annual = colors[0]

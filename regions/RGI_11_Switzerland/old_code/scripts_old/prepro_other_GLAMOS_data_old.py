@@ -2,7 +2,7 @@ import os
 import logging
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.glamos_preprocess import *
+from regions.RGI_11_Switzerland.scripts.glamos_preprocess import *
 
 # Setup logging
 logging.basicConfig(

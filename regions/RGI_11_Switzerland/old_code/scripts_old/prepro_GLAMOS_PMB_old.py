@@ -5,9 +5,9 @@ from tqdm import tqdm
 from argparse import ArgumentParser
 
 # Scripts
-from regions.Switzerland.scripts.helpers import *
-from regions.Switzerland.scripts.glamos_preprocess import *
-from regions.Switzerland.scripts.config_CH import *
+from regions.RGI_11_Switzerland.scripts.helpers import *
+from regions.RGI_11_Switzerland.scripts.glamos_preprocess import *
+from regions.RGI_11_Switzerland.scripts.config_CH import *
 
 # Setup logging
 logging.basicConfig(
