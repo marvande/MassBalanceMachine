@@ -170,32 +170,28 @@ def build_region_glacier_info_for_splits(
     rgi_region_id: str,
     outline_shp_path: str,
     ft_glaciers_by_split: dict,
+    holdout_glaciers_by_split: dict,  # NEW: explicit holdout per split
     split_names=("5pct", "50pct"),
     ft_label_col="FT/Hold-out glacier",
     ft_label_ft="FT",
     ft_label_holdout="Hold-out",
+    ft_label_excluded="Excluded",  # NEW: glaciers in neither set
     glacier_col="GLACIER",
     lat_col="POINT_LAT",
     lon_col="POINT_LON",
     period_col="PERIOD",
     nmeas_col="Nb. measurements",
-    source_col="SOURCE_CODE",  # NEW
-    source_resolution="mode",  # NEW: "error" | "first" | "mode" | "list"
+    source_col="SOURCE_CODE",
+    source_resolution="mode",
     load_stakes_fn=None,
     verbose=True,
 ):
     """
     Generic builder for per-glacier info tables (for maps / summaries), for any region + any splits.
-    Also carries SOURCE_CODE info into the final per-glacier dataframe.
 
-    Returns
-    -------
-    data_region : pd.DataFrame
-    glacier_outline_rgi : GeoDataFrame
-    glacier_info_by_split : dict[str, pd.DataFrame]
-        Indexed by GLACIER, with columns:
-          [POINT_LAT, POINT_LON, Nb. measurements, (period counts...), SOURCE_CODE, FT/Hold-out glacier]
-        SOURCE_CODE handling depends on source_resolution.
+    ft_glaciers_by_split and holdout_glaciers_by_split are both required.
+    Glaciers in neither set are labelled ft_label_excluded ("Excluded") —
+    these are pool glaciers not sampled for fine-tuning in a given split.
     """
 
     if load_stakes_fn is None:
@@ -231,13 +227,12 @@ def build_region_glacier_info_for_splits(
         .astype(int)
     )
 
-    # --- SOURCE_CODE per glacier (NEW) ---
+    # --- SOURCE_CODE per glacier ---
     if source_col in data_region.columns:
         gsrc = data_region.groupby(glacier_col)[source_col].apply(
             lambda s: s.dropna().astype(str).unique()
         )
 
-        # detect mixed source glaciers
         mixed = gsrc[gsrc.apply(len) > 1]
         if len(mixed) > 0 and verbose:
             print(
@@ -262,13 +257,12 @@ def build_region_glacier_info_for_splits(
                 .to_frame()
             )
         elif source_resolution == "mode":
-            # mode by frequency in raw rows (more stable than unique list)
+
             def _mode(series):
                 s = series.dropna().astype(str)
                 if len(s) == 0:
                     return None
-                vc = s.value_counts()
-                return vc.index[0]
+                return s.value_counts().index[0]
 
             glacier_source = (
                 data_region.groupby(glacier_col)[source_col]
@@ -296,21 +290,35 @@ def build_region_glacier_info_for_splits(
 
     for split in split_names:
         ft_set = set(ft_glaciers_by_split.get(split, []))
+        holdout_set = set(holdout_glaciers_by_split.get(split, []))
+
+        # Sanity check
+        overlap = ft_set & holdout_set
+        if overlap and verbose:
+            print(
+                f"  Warning split={split}: {len(overlap)} glaciers in both FT and holdout: {overlap}"
+            )
+
+        def _label(g):
+            if g in ft_set:
+                return ft_label_ft
+            if g in holdout_set:
+                return ft_label_holdout
+            return ft_label_excluded
 
         df = base.copy()
-        df[ft_label_col] = df.index.to_series().apply(
-            lambda g: ft_label_ft if g in ft_set else ft_label_holdout
-        )
+        df[ft_label_col] = df.index.to_series().apply(_label)
         glacier_info_by_split[split] = df
 
         if verbose:
             n_ft = int((df[ft_label_col] == ft_label_ft).sum())
             n_ho = int((df[ft_label_col] == ft_label_holdout).sum())
+            n_excl = int((df[ft_label_col] == ft_label_excluded).sum())
             ft_rows = int(data_region[data_region[glacier_col].isin(ft_set)].shape[0])
             all_rows = int(data_region.shape[0])
-            frac = (ft_rows / all_rows) if all_rows else float("nan")
+            frac = ft_rows / all_rows if all_rows else float("nan")
             print(
-                f"  split={split}: FT glaciers={n_ft}, Hold-out glaciers={n_ho} | "
+                f"  split={split}: FT={n_ft}, Hold-out={n_ho}, Excluded={n_excl} | "
                 f"FT rows fraction ~ {frac:.3f}"
             )
 

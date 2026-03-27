@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import geopandas as gpd
 
-from regions.Iceland.scripts.config_ICE import *
+from regions.RGI_06_Iceland.scripts.config_ICE import *
 
 
 def get_gl_area_ICE(

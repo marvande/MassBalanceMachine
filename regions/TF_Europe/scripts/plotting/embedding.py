@@ -31,6 +31,8 @@ def plot_tsne_overlap(
     STATIC_COLS: Sequence[str],
     MONTHLY_COLS: Sequence[str],
     *,
+    label_train: str = "Train",  # NEW: actual name shown in legend
+    label_test: str = "Test",  # NEW: actual name shown in legend
     stratify_by: str = "GLACIER",
     n_per_group: int = 100,
     exact: bool = False,
@@ -44,82 +46,19 @@ def plot_tsne_overlap(
     s_train=45,
     s_test=45,
     custom_palette: Optional[dict] = None,
-    # (optional) subpanel label controls if you kept them earlier
     sublabels: Sequence[str] = ("a", "b", "c"),
     label_fmt: str = "({})",
     label_xy: Tuple[float, float] = (0.02, 0.98),
     label_fontsize: int = 14,
     label_bbox: Optional[dict] = None,
 ):
-    """
-    Visualize overlap between training and test datasets using t-SNE embeddings.
-
-    The function performs a stratified subsampling of train and test data,
-    computes t-SNE embeddings on the combined feature space, and displays
-    train/test overlap for three feature configurations:
-      - all features (static + monthly),
-      - dynamic (monthly) features only,
-      - static features only.
-
-    Each configuration is shown in a separate subplot.
-
-    Parameters
-    ----------
-    data_train : pandas.DataFrame
-        Training dataset containing static and/or monthly features.
-    data_test : pandas.DataFrame
-        Test dataset with the same feature structure as `data_train`.
-    STATIC_COLS : sequence of str
-        Names of static feature columns.
-    MONTHLY_COLS : sequence of str
-        Names of monthly (dynamic) feature columns.
-    stratify_by : str, optional
-        Column name used for stratified subsampling (e.g. glacier ID).
-    n_per_group : int, optional
-        Number of samples per group drawn from train and test sets.
-    exact : bool, optional
-        If True, enforce exact group sizes during stratified sampling.
-    perplexity : int or None, optional
-        Perplexity parameter for t-SNE. If None, it is chosen automatically
-        based on sample size.
-    random_state : int, optional
-        Random seed for reproducibility.
-    n_iter : int, optional
-        Maximum number of t-SNE iterations.
-    n_iter_without_progress : int, optional
-        Number of iterations without improvement before early stopping.
-    figsize : tuple, optional
-        Figure size passed to matplotlib.
-    alpha_train, alpha_test : float, optional
-        Marker transparency for train and test points.
-    s_train, s_test : int, optional
-        Marker sizes for train and test points.
-    custom_palette : dict or None, optional
-        Mapping defining colors for 'Train' and 'Test'. If None, defaults
-        are used.
-    sublabels : sequence of str, optional
-        Labels used to annotate subplots (e.g. ('a', 'b', 'c')).
-    label_fmt : str, optional
-        Format string applied to subplot labels.
-    label_xy : tuple, optional
-        Relative (x, y) position of subplot labels in axes coordinates.
-    label_fontsize : int, optional
-        Font size of subplot labels.
-    label_bbox : dict or None, optional
-        Matplotlib bbox properties for subplot label backgrounds.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-        The generated figure containing the t-SNE overlap plots.
-    """
-    # Default palette (your colors)
     if custom_palette is None:
         colors = get_cmap_hex(cm.batlow, 10)
-        color_dark_blue = colors[0]
-        custom_palette = {"Train": color_dark_blue, "Test": "#b2182b"}
+        custom_palette = {
+            label_train: colors[0],
+            label_test: "#b2182b",
+        }
 
-    # 1) Stratified downsample per split
     train_s = stratified_sample_by_group(
         data_train,
         group_col=stratify_by,
@@ -151,10 +90,7 @@ def plot_tsne_overlap(
             ax.set_axis_off()
             continue
 
-        # 2) Build matrix with train-fitted preprocessing
         X, mask_train = _prepare_matrix(train_s, test_s, cols)
-
-        # 3) t-SNE on combined samples
         emb, px_used = _tsne_embed(
             X,
             perplexity=perplexity,
@@ -163,19 +99,17 @@ def plot_tsne_overlap(
             n_iter_without_progress=n_iter_without_progress,
         )
 
-        # 4) Split back to train/test embeddings
         emb_train = emb[mask_train]
         emb_test = emb[~mask_train]
 
-        # 5) Plot with your colors
         ax.scatter(
             emb_train[:, 0],
             emb_train[:, 1],
             marker="o",
             s=s_train,
             alpha=alpha_train,
-            color=custom_palette["Train"],
-            label="Train",
+            color=custom_palette[label_train],
+            label=label_train,
             linewidths=0,
         )
         ax.scatter(
@@ -184,8 +118,8 @@ def plot_tsne_overlap(
             marker="^",
             s=s_test,
             alpha=alpha_test,
-            color=custom_palette["Test"],
-            label="Test",
+            color=custom_palette[label_test],
+            label=label_test,
             linewidths=0,
         )
 
@@ -194,7 +128,6 @@ def plot_tsne_overlap(
         ax.set_ylabel("t-SNE 2")
         ax.legend(frameon=True)
 
-        # optional subpanel labels
         if sublabels and i < len(sublabels):
             ax.text(
                 label_xy[0],

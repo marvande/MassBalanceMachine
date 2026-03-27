@@ -1,6 +1,6 @@
 import pandas as pd
 
-from regions.Iceland.scripts.config_ICE import *
+from regions.RGI_06_Iceland.scripts.config_ICE import *
 
 
 def get_stakes_data_ICE(cfg):

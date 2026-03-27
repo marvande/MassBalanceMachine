@@ -1,6 +1,6 @@
 import pandas as pd
 
-from regions.French_Alps.scripts.config_FR import *
+from regions.RGI_11_French_Alps.scripts.config_FR import *
 
 
 def get_stakes_data_FR(cfg):

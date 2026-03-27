@@ -2,7 +2,7 @@ import pandas as pd
 import os
 import geopandas as gpd
 
-from regions.French_Alps.scripts.config_FR import *
+from regions.RGI_11_French_Alps.scripts.config_FR import *
 
 
 def get_gl_area_FR(
