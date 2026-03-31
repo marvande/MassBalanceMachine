@@ -18,7 +18,6 @@ from scipy.stats import pearsonr
 import colormaps as cmaps
 from sklearn.cluster import KMeans
 
-
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
 
@@ -1003,15 +1002,15 @@ def plot_tsne_overlap_xreg_from_single_res(
 
     # pick which dfs
     if use_aug:
-        df_ch = res_xreg.get("df_train_aug")
+        df_src = res_xreg.get("df_train_aug")
         df_test_all = res_xreg.get("df_test_aug")
         label_df = "(*_aug)"
     else:
-        df_ch = res_xreg.get("df_train")
+        df_src = res_xreg.get("df_train")
         df_test_all = res_xreg.get("df_test")
         label_df = ""
 
-    if df_ch is None or len(df_ch) == 0:
+    if df_src is None or len(df_src) == 0:
         raise ValueError(f"df_train{label_df} missing/empty in res_xreg.")
     if df_test_all is None or len(df_test_all) == 0:
         raise ValueError(f"df_test{label_df} missing/empty in res_xreg.")
@@ -1020,7 +1019,7 @@ def plot_tsne_overlap_xreg_from_single_res(
         raise ValueError(
             f"'{group_col}' not found in df_test{label_df}. Needed to split by region."
         )
-    if group_col not in df_ch.columns:
+    if group_col not in df_src.columns:
         # not fatal, but helps sanity-check
         print(
             f"[warn] '{group_col}' not in df_train{label_df}. That's OK for CH reference."
@@ -1042,6 +1041,7 @@ def plot_tsne_overlap_xreg_from_single_res(
         codes_present = [c for c in codes_present if c in only_codes]
 
     figs = {}
+    print(codes_present)
     for code in codes_present:
         df_other = df_test_all[
             df_test_all[group_col].astype(str).str.upper() == code
@@ -1050,11 +1050,11 @@ def plot_tsne_overlap_xreg_from_single_res(
             continue
 
         print(
-            f"Plotting XREG t-SNE: {target_code}(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+            f"Plotting XREG t-SNE: {target_code}(train n={len(df_src)}) vs {code}(test n={len(df_other)})"
         )
 
         fig = plot_tsne_overlap(
-            data_train=df_ch,
+            data_train=df_src,
             data_test=df_other,
             STATIC_COLS=STATIC_COLS,
             MONTHLY_COLS=MONTHLY_COLS,
@@ -1072,7 +1072,7 @@ def plot_tsne_overlap_xreg_from_single_res(
     return figs
 
 
-def plot_feature_kde_overlap_xreg_ch_vs_codes(
+def plot_feature_kde_overlap_xreg_tgt_vs_codes(
     res_xreg: dict,
     cfg,
     features,
@@ -1082,7 +1082,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
     only_codes=None,  # e.g. ["IT_AT", "FR"]
     skip_codes=None,  # e.g. ["CH"]
     output_dir=None,  # e.g. "figures/xreg_kde"
-    include_ch_in_title: bool = True,
+    include_tgt_in_title: bool = True,
 ):
     """
     Plot KDE-based feature overlap for XREG: CH vs each SOURCE_CODE subset.
@@ -1094,7 +1094,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
     Parameters
     ----------
     res_xreg : dict
-        Output dict from prepare_monthly_df_crossregional_CH_to_EU (or similar),
+        Output dict from prepare_monthly_df_crossregional_tgt_to_EU (or similar),
         containing df_train/df_test and optionally df_train_aug/df_test_aug.
         df_test must contain `group_col` (SOURCE_CODE).
     cfg : object
@@ -1113,7 +1113,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
         Codes to skip (CH is always skipped by default).
     output_dir : str or None
         If set, saves one PNG per code into this directory.
-    include_ch_in_title : bool
+    include_tgt_in_title : bool
         Adds CH vs CODE title on each figure.
 
     Returns
@@ -1183,7 +1183,7 @@ def plot_feature_kde_overlap_xreg_ch_vs_codes(
             outfile=None,  # save here instead (so we control naming)
         )
 
-        if include_ch_in_title:
+        if include_tgt_in_title:
             fig.suptitle(f"XREG feature overlap: {target_code} vs {code}", fontsize=14)
             fig.tight_layout()
 
@@ -1291,3 +1291,67 @@ def holdout_split_cluster_stratified(
     }
 
     return df_pool, df_holdout, holdout_glaciers, pool_glaciers, gfeat, summary
+
+
+def plot_tsne_overlap_src_vs_tgt_splits(
+    res_src: dict,
+    df_tgt_pool: pd.DataFrame,
+    df_tgt_holdout: pd.DataFrame,
+    cfg,
+    STATIC_COLS,
+    MONTHLY_COLS,
+    use_aug: bool = False,
+    n_iter: int = 1000,
+    src_code="ISL",
+    tgt_code="CH",
+):
+    suffix = "_aug" if use_aug else ""
+
+    df_src = res_src.get(f"df_train{suffix}")
+    df_tgt_all = res_src.get(f"df_test{suffix}")
+
+    if df_src is None or len(df_src) == 0:
+        raise ValueError(f"df_train{suffix} missing/empty in res_src.")
+    if df_tgt_all is None or len(df_tgt_all) == 0:
+        raise ValueError(f"df_test{suffix} missing/empty in res_src.")
+
+    colors = get_cmap_hex(cm.batlow, 10)
+    src_color = colors[0]
+    tgt_color = "#b2182b"
+
+    comparisons = {
+        "tgt_all": (df_tgt_all, f"{tgt_code} all"),
+        "tgt_pool": (df_tgt_pool, f"{tgt_code} pool"),
+        "tgt_holdout": (df_tgt_holdout, f"{tgt_code} holdout"),
+    }
+
+    figs = {}
+    for key, (df_test, tgt_code) in comparisons.items():
+        print(
+            f"Plotting t-SNE: {src_code} (n={len(df_src)}) vs {tgt_code} (n={len(df_test)})"
+        )
+
+        custom_palette = {
+            src_code: src_color,
+            tgt_code: tgt_color,
+        }
+
+        fig = plot_tsne_overlap(
+            data_train=df_src,
+            data_test=df_test,
+            STATIC_COLS=STATIC_COLS,
+            MONTHLY_COLS=MONTHLY_COLS,
+            label_train=src_code,
+            label_test=tgt_code,
+            custom_palette=custom_palette,
+            sublabels=("a", "b", "c"),
+            label_fmt="({})",
+            label_xy=(0.02, 0.98),
+            label_fontsize=14,
+            n_iter=n_iter,
+            random_state=cfg.seed,
+        )
+        fig.suptitle(f"t-SNE overlap: {src_code} vs {tgt_code}", fontsize=14)
+        figs[key] = fig
+
+    return figs

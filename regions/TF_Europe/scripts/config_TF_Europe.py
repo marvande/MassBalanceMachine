@@ -54,6 +54,49 @@ RGI_REGIONS = {
 }
 
 
+# --- 1) One place to define the per-target region metadata you need for mapping ---
+TARGET_REGION_META = {
+    "ISL": {
+        "rgi_region_id": "06",
+        "outline_shp_rel": "RGI_v6/RGI_06_Iceland/06_rgi60_Iceland.shp",
+        "title": "Glacier PMB locations Iceland",
+        "extent": (-25, -11, 62, 68),
+    },
+    "NOR": {
+        "rgi_region_id": "08",
+        "outline_shp_rel": "RGI_v6/RGI_08_Scandinavia/08_rgi60_Scandinavia.shp",
+        # If you actually use the Norway-only file in your repo, swap path accordingly.
+        "title": "Glacier PMB locations Norway",
+        # rough bbox for mainland Norway + Svalbard excluded; adjust if needed
+        "extent": (4, 32, 57, 72),
+    },
+    "CH": {
+        "rgi_region_id": "11",
+        "outline_shp_rel": "RGI_v6/RGI_11_CentralEurope/11_rgi60_CentralEurope.shp",
+        # If you have a Switzerland-only outline, swap path accordingly.
+        "title": "Glacier PMB locations Switzerland",
+        # rough bbox for Switzerland
+        "extent": (5.8, 13.7, 44.5, 47.9),
+    },
+    "CEU": {
+        "rgi_region_id": "11",
+        "outline_shp_rel": "RGI_v6/RGI_11_CentralEurope/11_rgi60_CentralEurope.shp",
+        # If you have a Switzerland-only outline, swap path accordingly.
+        "title": "Glacier PMB locations Central Europe (FR+CH+IT+AT)",
+        # rough bbox for CEU
+        "extent": (5.8, 13.7, 44.5, 47.9),
+    },
+    "USCA": {
+        "rgi_region_id": ["01", "02"],
+        "outline_shp_rel": "RGI_v6/RGI_01_Alaska/01_rgi60_Alaska.shp",
+        # If you have a Switzerland-only outline, swap path accordingly.
+        "title": "Glacier PMB locations US CA (ALA+CAW)",
+        # rough bbox for CEU
+        "extent": (5.8, 13.7, 44.5, 47.9),
+    },
+}
+
+
 def rgi_outline_path(rgi_id: str) -> str:
     """Return the relative path to the RGI outlines shapefile for a region id like '07'."""
     rgi_id = str(rgi_id).zfill(2)

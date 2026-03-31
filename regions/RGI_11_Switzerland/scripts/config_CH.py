@@ -16,9 +16,9 @@ LSTM_OOS_NORM_Y = "models/lstm_model_2025-12-16_OOS_norm_y.pt"
 LSTM_IS_NORM_Y = "models/lstm_model_2025-12-16_IS_norm_y.pt"
 LSTM_IS_ORIGIN_Y = "models/lstm_model_2025-12-16_IS_orig_y.pt"
 
-LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2026-01-02_OOS_norm_y_past.pt"
-LSTM_IS_NORM_Y_PAST = "models/lstm_model_2026-01-02_IS_norm_y_past.pt"
-LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2026-01-02_IS_orig_y_past.pt"
+LSTM_OOS_NORM_Y_PAST = "models/lstm_model_2026-03-31_OOS_norm_y_past.pt"
+LSTM_IS_NORM_Y_PAST = "models/lstm_model_2026-03-31_IS_norm_y_past.pt"
+LSTM_IS_ORIGIN_Y_PAST = "models/lstm_model_2026-03-31_IS_orig_y_past.pt"
 
 
 VOIS_CLIMATE = [

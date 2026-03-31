@@ -462,6 +462,7 @@ def train_within_region_models_all(
     models_dir="models",
     prefix="lstm_within",
     epochs=150,
+    date=None,
 ):
     models = {}
     infos = {}
@@ -489,6 +490,7 @@ def train_within_region_models_all(
             train_flag=train_flag,
             force_retrain=force_retrain if train_flag else False,
             epochs=epochs,
+            date=date,
         )
 
         models[key] = model

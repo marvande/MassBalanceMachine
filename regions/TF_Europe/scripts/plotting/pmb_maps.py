@@ -5,8 +5,12 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 from matplotlib.lines import Line2D
+from pathlib import Path
+from cmcrameri import cm
+
 
 from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex  # noqa: F401
+from regions.TF_Europe.scripts.utils import *
 
 
 def plot_glacier_measurements_map(
@@ -206,3 +210,69 @@ def plot_glacier_measurements_map(
         plt.show()
 
     return fig, ax, df, scaled_size
+
+
+def make_pool_holdout_map_for_target(
+    cfg,
+    target_code: str,
+    holdout_glaciers,
+    pool_glaciers,
+    split_name: str = "spatial",
+    sizes=(100, 1500),
+    size_legend_values=(30, 100, 1000),
+    cmap_for_train=cm.batlow,
+    TARGET_REGION_META=None,
+):
+    meta = TARGET_REGION_META[target_code]
+
+    data_tgt, glacier_outline_rgi, glacier_info_by_split = (
+        build_region_glacier_info_for_splits(
+            cfg,
+            rgi_region_id=meta["rgi_region_id"],
+            outline_shp_path=str(Path(cfg.dataPath) / meta["outline_shp_rel"]),
+            ft_glaciers_by_split={split_name: pool_glaciers},
+            holdout_glaciers_by_split={split_name: holdout_glaciers},
+            split_names=[split_name],
+            ft_label_col="Pool/Hold-out glacier",
+            ft_label_ft="Pool",
+            ft_label_holdout="Hold-out",
+            ft_label_excluded="Excluded",
+        )
+    )
+
+    glacier_df = glacier_info_by_split[split_name]
+
+    try:
+        colors = get_cmap_hex(cmap_for_train, 10)
+        train_color = colors[0]
+    except Exception:
+        train_color = "#1f4e79"
+
+    palette = {
+        "Hold-out": train_color,
+        "Pool": "#b2182b",
+        "Excluded": "#aaaaaa",  # in case any glaciers fall outside both sets
+    }
+
+    fig, ax, glacier_info_plot, scaled_size_fn = plot_glacier_measurements_map(
+        glacier_info=glacier_df,
+        glacier_outline_rgi=glacier_outline_rgi,
+        title=meta["title"],
+        extent=meta["extent"],
+        sizes=sizes,
+        size_legend_values=size_legend_values,
+        palette=palette,
+        cmap_for_train=cmap_for_train,
+        split_col="Pool/Hold-out glacier",
+    )
+
+    return {
+        "data": data_tgt,
+        "glacier_outline_rgi": glacier_outline_rgi,
+        "glacier_df": glacier_df,
+        "fig": fig,
+        "ax": ax,
+        "glacier_info_plot": glacier_info_plot,
+        "scaled_size_fn": scaled_size_fn,
+        "palette": palette,
+    }
