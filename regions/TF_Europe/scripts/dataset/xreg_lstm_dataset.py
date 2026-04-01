@@ -717,6 +717,7 @@ def build_or_load_lstm_all_xreg(
     MONTHLY_COLS,
     STATIC_COLS,
     target_source_codes=None,
+    region_groups: dict | None = None,
     source_col="SOURCE_CODE",
     ch_code="CH",
     cache_dir="logs/LSTM_cache",
@@ -728,26 +729,52 @@ def build_or_load_lstm_all_xreg(
     expect_target=True,
     strict_nan=True,
 ):
+    """
+    Build or load LSTM datasets for cross-regional transfer (CH → targets).
 
+    Supports both individual region codes and grouped regions (pooled df_test).
+    Groups are keyed as "XREG_CH_TO_{GROUP_NAME}" and pool all member codes
+    into a single test dataset.
+
+    Parameters
+    ----------
+    region_groups : dict[str, list[str]] or None
+        e.g. {"CEU": ["FR", "IT_AT"], "USCA": ["ALA", "CAW"]}
+        Codes in groups are excluded from individual auto-discovery unless
+        explicitly listed in target_source_codes.
+    (all other parameters unchanged from original)
+    """
     logging.info("\n" + "=" * 60)
     logging.info("CROSS-REGIONAL LSTM DATASET PREPARATION (CH → EU)")
     logging.info("=" * 60)
 
-    # ---- discover target codes ----
+    region_groups = region_groups or {}
+
+    # codes already covered by a group
+    grouped_codes = {c for codes in region_groups.values() for c in codes}
+
+    # ---- discover individual target codes ----
     df_test_all = res_xreg["df_test"]
+    df_test_aug_all = res_xreg["df_test_aug"]
 
     if target_source_codes is None:
-        target_source_codes = sorted(
-            set(df_test_all[source_col].dropna().unique()) - {ch_code}
-        )
+        all_codes = set(df_test_all[source_col].dropna().unique()) - {ch_code}
+        target_source_codes = sorted(all_codes - grouped_codes)
         logging.info(
-            f"Auto-detected target SOURCE_CODEs (excluding {ch_code}): "
+            f"Auto-detected individual target SOURCE_CODEs "
+            f"(excluding {ch_code} and grouped codes {grouped_codes}): "
             f"{target_source_codes}"
         )
     else:
         logging.info(f"Using provided target SOURCE_CODEs: {target_source_codes}")
 
-    logging.info(f"Total target regions: {len(target_source_codes)}")
+    if region_groups:
+        logging.info(f"Region groups: { {k: v for k, v in region_groups.items()} }")
+
+    logging.info(
+        f"Total individual targets: {len(target_source_codes)} | "
+        f"Total groups: {len(region_groups)}"
+    )
     logging.info(f"Cache directory: {cache_dir}")
 
     # ---- train (CH) cached once ----
@@ -788,46 +815,22 @@ def build_or_load_lstm_all_xreg(
         f"Train split: {len(train_idx)} | Val split: {len(val_idx)}"
     )
 
-    # ---- tests cached per target ----
-    logging.info("\n--- TARGET REGION TEST DATASETS ---")
-
-    outputs = {}
-    only_set = set(only_test_keys) if only_test_keys else None
-
-    for sc in target_source_codes:
-
-        fr_test = force_recompute_tests
-        if only_set is not None:
-            fr_test = (sc in only_set) or (f"XREG_CH_TO_{sc}" in only_set)
-
+    # ---- helper to build one test entry ----
+    def _build_test_entry(key_test, df_test_sc, df_test_aug_sc, label):
         logging.info("\n" + "-" * 50)
-        logging.info(f"Target region: {sc}")
-        logging.info(f"Force recompute test: {fr_test}")
-
-        df_test_sc = (
-            res_xreg["df_test"].loc[res_xreg["df_test"][source_col] == sc].copy()
-        )
-
-        df_test_aug_sc = (
-            res_xreg["df_test_aug"]
-            .loc[res_xreg["df_test_aug"][source_col] == sc]
-            .copy()
-        )
-
-        logging.info(
-            f"Test rows: {len(df_test_sc)} | " f"Aug rows: {len(df_test_aug_sc)}"
-        )
+        logging.info(f"Target: {label}")
+        logging.info(f"Cache key (test): {key_test}")
+        logging.info(f"Test rows: {len(df_test_sc)} | Aug rows: {len(df_test_aug_sc)}")
 
         if len(df_test_sc) == 0 or len(df_test_aug_sc) == 0:
-            logging.warning(f"Skipping {sc}: no usable test rows.")
-            outputs[sc] = {
+            logging.warning(f"Skipping {label}: no usable test rows.")
+            return {
                 "ds_train": ds_train,
                 "ds_test": None,
                 "train_idx": train_idx,
                 "val_idx": val_idx,
-                "note": f"No test rows for SOURCE_CODE={sc}",
+                "note": f"No test rows for {label}",
             }
-            continue
 
         res_sc = {
             "df_test": df_test_sc,
@@ -836,9 +839,6 @@ def build_or_load_lstm_all_xreg(
             "months_tail_pad": res_xreg["months_tail_pad"],
         }
 
-        key_test = f"XREG_CH_TO_{sc}"
-        logging.info(f"Cache key (test): {key_test}")
-
         ds_test = build_or_load_lstm_test_only(
             cfg=cfg,
             key_test=key_test,
@@ -846,7 +846,7 @@ def build_or_load_lstm_all_xreg(
             MONTHLY_COLS=MONTHLY_COLS,
             STATIC_COLS=STATIC_COLS,
             cache_dir=cache_dir,
-            force_recompute=fr_test,
+            force_recompute=force_recompute_tests,
             normalize_target=normalize_target,
             expect_target=expect_target,
             strict_nan=strict_nan,
@@ -854,7 +854,7 @@ def build_or_load_lstm_all_xreg(
 
         logging.info(f"Test dataset size (sequences): {len(ds_test)}")
 
-        outputs[sc] = {
+        return {
             "ds_train": ds_train,
             "ds_test": ds_test,
             "train_idx": train_idx,
@@ -864,6 +864,59 @@ def build_or_load_lstm_all_xreg(
                 "test": key_test,
             },
         }
+
+    # ---- tests: individual regions ----
+    logging.info("\n--- INDIVIDUAL TARGET REGION TEST DATASETS ---")
+
+    outputs = {}
+    only_set = set(only_test_keys) if only_test_keys else None
+
+    for sc in target_source_codes:
+        key_test = f"XREG_CH_TO_{sc}"
+
+        if only_set is not None:
+            if sc not in only_set and key_test not in only_set:
+                logging.info(f"Skipping {sc} (not in only_test_keys).")
+                continue
+
+        df_test_sc = df_test_all.loc[df_test_all[source_col] == sc].copy()
+        df_test_aug_sc = df_test_aug_all.loc[df_test_aug_all[source_col] == sc].copy()
+
+        outputs[key_test] = _build_test_entry(
+            key_test=key_test,
+            df_test_sc=df_test_sc,
+            df_test_aug_sc=df_test_aug_sc,
+            label=sc,
+        )
+
+    # ---- tests: grouped regions ----
+    if region_groups:
+        logging.info("\n--- GROUPED TARGET REGION TEST DATASETS ---")
+
+    for group_name, codes in region_groups.items():
+        key_test = f"XREG_CH_TO_{group_name}"
+
+        if only_set is not None:
+            if group_name not in only_set and key_test not in only_set:
+                logging.info(f"Skipping group {group_name} (not in only_test_keys).")
+                continue
+
+        mask = df_test_all[source_col].isin(codes)
+        mask_aug = df_test_aug_all[source_col].isin(codes)
+
+        df_test_group = df_test_all.loc[mask].copy()
+        df_test_aug_group = df_test_aug_all.loc[mask_aug].copy()
+
+        logging.info(
+            f"Group '{group_name}': pooled {len(df_test_group)} rows " f"from {codes}."
+        )
+
+        outputs[key_test] = _build_test_entry(
+            key_test=key_test,
+            df_test_sc=df_test_group,
+            df_test_aug_sc=df_test_aug_group,
+            label=f"{group_name} ({', '.join(codes)})",
+        )
 
     logging.info("\nFinished cross-regional LSTM dataset preparation.")
     logging.info("=" * 60 + "\n")

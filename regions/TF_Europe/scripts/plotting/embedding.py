@@ -1093,15 +1093,19 @@ def plot_feature_kde_overlap_xreg_with_shifts(
     between CH (train) and the target region (test), with per-variable MMD²
     annotated in the top-right corner of each subplot.
 
+    Works for both individual region keys (e.g. "XREG_CH_TO_NOR") and
+    grouped region keys (e.g. "XREG_CH_TO_CEU" pooling FR + IT_AT).
+
     Parameters
     ----------
     res_all_xreg : dict
-        Dict keyed by transfer name (e.g. "XREG_CH_TO_NOR"), each value
-        being a dict with "df_train" and "df_test".
+        Dict keyed by transfer name (e.g. "XREG_CH_TO_NOR" or "XREG_CH_TO_CEU"),
+        each value being a dict with "df_train" and "df_test".
     cfg : object
         Config object (used for output path if output_dir is relative).
     monthly_cols : list[str]
-        Dynamic/climate feature columns.
+        Dynamic/climate feature columns. Should already include POINT_BALANCE
+        if you want it plotted and measured.
     static_cols : list[str]
         Static/topo feature columns.
     scaler_m : StandardScaler
@@ -1110,18 +1114,20 @@ def plot_feature_kde_overlap_xreg_with_shifts(
         Fitted scaler for static features (used in compute_domain_shift).
     group_col : str
         Column identifying source region in df_test (default: "SOURCE_CODE").
+        Used only to build a human-readable subtitle listing member codes.
     target_code : str
         Code for the training region (default: "CH").
     use_aug : bool
         If True, uses df_train_aug/df_test_aug instead of df_train/df_test.
     only_codes : list[str] or None
-        If given, only process these region codes.
+        If given, only process keys whose suffix matches one of these strings
+        (e.g. ["NOR", "CEU"]).
     skip_codes : list[str] or None
-        Region codes to skip.
+        Key suffixes to skip (e.g. ["CH"]).
     output_dir : str or None
         Directory to save PNGs. If None, figures are not saved.
     include_tgt_in_title : bool
-        Whether to add "CH vs CODE" suptitle to each figure.
+        Whether to add suptitle to each figure.
 
     Returns
     -------
@@ -1148,11 +1154,21 @@ def plot_feature_kde_overlap_xreg_with_shifts(
         out_abs = None
 
     suffix = "_aug" if use_aug else ""
-    all_features = monthly_cols + static_cols + ["POINT_BALANCE"]
+    all_features = monthly_cols + static_cols
 
     figs = {}
 
     for key in tqdm(res_all_xreg, desc="Plotting KDE + MMD²"):
+
+        # --- infer label directly from key (works for both individual + groups) ---
+        # e.g. "XREG_CH_TO_NOR" -> "NOR", "XREG_CH_TO_CEU" -> "CEU"
+        code = key.split("_TO_")[-1].upper() if "_TO_" in key else key.upper()
+
+        # --- apply only/skip filters on the key suffix ---
+        if code in skip_set:
+            continue
+        if only_set is not None and code not in only_set:
+            continue
 
         res_xreg = res_all_xreg[key]
 
@@ -1169,27 +1185,28 @@ def plot_feature_kde_overlap_xreg_with_shifts(
             print(f"Skipping {key}: missing or empty df_train/df_test.")
             continue
 
-        # --- infer region code from test set ---
+        # --- for grouped entries, build a subtitle listing member codes ---
         if group_col in df_test.columns:
-            codes_in_test = df_test[group_col].dropna().astype(str).str.upper().unique()
-            codes_in_test = [c for c in codes_in_test if c not in skip_set]
-            if only_set is not None:
-                codes_in_test = [c for c in codes_in_test if c in only_set]
-            code = codes_in_test[0] if len(codes_in_test) > 0 else key
+            member_codes = sorted(
+                df_test[group_col].dropna().astype(str).str.upper().unique()
+            )
+            # if only one code it's an individual entry, no need to list members
+            code_label = (
+                f"{code} ({', '.join(member_codes)})" if len(member_codes) > 1 else code
+            )
         else:
-            # fall back to parsing the key name e.g. "XREG_CH_TO_NOR" -> "NOR"
-            code = key.split("_TO_")[-1] if "_TO_" in key else key
+            code_label = code
 
-        if code.upper() in skip_set:
-            continue
+        print(
+            f"[{key}] label={code_label} | "
+            f"train n={len(df_train)}, test n={len(df_test)}"
+        )
 
-        print(f"[{key}] train n={len(df_train)}, test n={len(df_test)}")
-
-        # --- compute per-variable MMD² (includes POINT_BALANCE as monthly col) ---
+        # --- compute per-variable MMD² ---
         shift = compute_domain_shift(
             df_src=df_train,
             df_tgt=df_test,
-            monthly_cols=monthly_cols + ["POINT_BALANCE"],
+            monthly_cols=monthly_cols,
             static_cols=static_cols,
             scaler_m=scaler_m,
             scaler_s=scaler_s,
@@ -1237,7 +1254,7 @@ def plot_feature_kde_overlap_xreg_with_shifts(
         # --- title and layout ---
         if include_tgt_in_title:
             fig.suptitle(
-                f"XREG feature overlap: {target_code} vs {code}  "
+                f"XREG feature overlap: {target_code} vs {code_label}  "
                 f"(train n={len(df_train)}, test n={len(df_test)})",
                 fontsize=14,
             )

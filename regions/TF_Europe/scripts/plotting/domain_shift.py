@@ -3,7 +3,13 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 
-def plot_domain_shift(shift: dict, monthly_cols: list[str], static_cols: list[str]):
+def plot_domain_shift(
+    shift: dict,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    src="Iceland",
+    tgt="Switzerland",
+):
 
     var_keys = {f"D_mmd2_{col}": col for col in monthly_cols + static_cols}
     records_mmd2 = [
@@ -86,7 +92,7 @@ def plot_domain_shift(shift: dict, monthly_cols: list[str], static_cols: list[st
     ax_mid.set_yticklabels(labels, fontsize=10)
     ax_mid.set_xlim(0, max(values_mmd2) * 1.25)
     ax_mid.set_xlabel("MMD²", fontsize=11)
-    ax_mid.set_title("Per-variable MMD²  (Iceland → Switzerland)", fontsize=12, pad=10)
+    ax_mid.set_title(f"Per-variable MMD²  ({src} → {tgt})", fontsize=12, pad=10)
     ax_mid.invert_yaxis()
     ax_mid.spines[["top", "right"]].set_visible(False)
     ax_mid.grid(axis="x", color="#e0e0e0", linewidth=0.6)
@@ -101,7 +107,7 @@ def plot_domain_shift(shift: dict, monthly_cols: list[str], static_cols: list[st
     ax_right.set_xlim(0, max(values_energy) * 1.25)
     ax_right.set_xlabel("Energy distance", fontsize=11)
     ax_right.set_title(
-        "Per-variable Energy dist.  (Iceland → Switzerland)", fontsize=12, pad=10
+        f"Per-variable Energy dist.  ({src} → {tgt})", fontsize=12, pad=10
     )
     ax_right.invert_yaxis()
     ax_right.spines[["top", "right"]].set_visible(False)
