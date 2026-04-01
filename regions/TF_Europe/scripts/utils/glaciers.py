@@ -170,12 +170,12 @@ def build_region_glacier_info_for_splits(
     rgi_region_id: str,
     outline_shp_path: str,
     ft_glaciers_by_split: dict,
-    holdout_glaciers_by_split: dict,  # NEW: explicit holdout per split
+    holdout_glaciers_by_split: dict,  # : explicit holdout per split
     split_names=("5pct", "50pct"),
     ft_label_col="FT/Hold-out glacier",
     ft_label_ft="FT",
     ft_label_holdout="Hold-out",
-    ft_label_excluded="Excluded",  # NEW: glaciers in neither set
+    ft_label_excluded="Excluded",  # : glaciers in neither set
     glacier_col="GLACIER",
     lat_col="POINT_LAT",
     lon_col="POINT_LON",

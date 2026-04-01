@@ -257,7 +257,7 @@ def build_or_load_lstm_for_key(
     force_recompute=False,
     normalize_target=True,
     expect_target=True,
-    strict_nan=True,  # <-- new
+    strict_nan=True,
     show_progress=True,
 ):
 

@@ -509,6 +509,7 @@ def train_crossregional_models_all(
     models_dir="models",
     prefix="lstm_xreg_CH_to",
     epochs=150,
+    date=None,
 ):
     models = {}
     infos = {}
@@ -548,6 +549,7 @@ def train_crossregional_models_all(
             train_flag=train_flag,
             force_retrain=force_retrain if train_flag else False,
             epochs=epochs,
+            date=date,
         )
 
         models[key] = model

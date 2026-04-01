@@ -870,7 +870,6 @@ class MBSequenceDataset(Dataset):
         T: int,
         show_progress: bool = True,
         expect_target: bool = True,
-        # NEW:
         probe_cols: Optional[List[str]] = None,
     ) -> Dict[str, np.ndarray]:
 
@@ -1185,7 +1184,7 @@ class MBSequenceDataset(Dataset):
             keys=list(ds_src.keys),
         )
 
-        # NEW: copy all probe arrays if present
+        # copy all probe arrays if present
         if hasattr(ds_src, "probe_names"):
             for pname in ds_src.probe_names:
                 data_dict[f"probe__{pname}"] = (

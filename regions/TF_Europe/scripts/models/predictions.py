@@ -460,6 +460,7 @@ def make_test_loader_for_key(cfg, lstm_assets_for_key, batch_size=128):
         fit_and_transform=True,
         shuffle_train=True,
         use_weighted_sampler=True,
+        verbose=False,
     )
 
     test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
@@ -576,6 +577,9 @@ def evaluate_all_models(
     grid_figsize=(20, 12),
     ax_xlim=(-16, 9),
     ax_ylim=(-16, 9),
+    domain_shifts: dict | None = None,
+    complement_key=None,
+    custom_order=None,
 ):
     if save_dir:
         save_abs = os.path.join(save_dir)
@@ -583,7 +587,10 @@ def evaluate_all_models(
     else:
         save_abs = None
 
-    keys = sorted(models_by_key.keys())
+    if custom_order == None:
+        keys = sorted(models_by_key.keys())
+    else:
+        keys = custom_order
 
     # --- combined grid ---
     nrows, ncols = grid_shape
@@ -600,7 +607,7 @@ def evaluate_all_models(
 
     for i, key in enumerate(keys):
         model = models_by_key[key]
-        print(f"\nEvaluating {key} ...")
+        # print(f"\nEvaluating {key} ...")
 
         # --- individual fig ---
         metrics, df_preds, fig_ind, ax_ind = evaluate_one_model(
@@ -614,6 +621,7 @@ def evaluate_all_models(
             title=f"{key} – Pred vs Truth (Test)",
             legend_fontsize=14,
         )
+
         metrics["key"] = key
         rows.append(metrics)
         preds_by_key[key] = df_preds
@@ -639,6 +647,33 @@ def evaluate_all_models(
                 legend_fontsize=15,
             )
 
+        # --- add domain shift annotation ---
+        domain_shift_key = complement_key + key
+        if domain_shifts is not None and domain_shift_key in domain_shifts:
+            shift = domain_shifts[domain_shift_key]
+
+            txt = (
+                f"MMD² joint: {shift['D_mmd2_joint']:.3f}\n"
+                f"clim: {shift['D_mmd2_climate']:.3f} | topo: {shift['D_mmd2_topo']:.3f}"
+            )
+
+            ax_grid.text(
+                0.98,
+                0.98,  # <-- move to top-right
+                txt,
+                transform=ax_grid.transAxes,
+                va="top",
+                ha="right",  # <-- align text to the right
+                fontsize=12,
+                color="red",
+                bbox=dict(
+                    boxstyle="round,pad=0.3",
+                    facecolor="white",
+                    alpha=0.7,
+                    edgecolor="none",
+                ),
+            )
+
     # turn off unused axes
     for j in range(len(keys), n_slots):
         axes[j].axis("off")
@@ -653,6 +688,12 @@ def evaluate_all_models(
             ax.set_ylabel("Modeled PMB [m w.e.]")
         else:
             ax.set_ylabel("")
+
+    for i, ax in enumerate(axes):
+        if i != 0:  # keep only first subplot legend
+            leg = ax.get_legend()
+            if leg is not None:
+                leg.remove()
 
     fig_grid.suptitle("Pred vs Truth (Test) — All Datasets", fontsize=20)
     fig_grid.tight_layout()

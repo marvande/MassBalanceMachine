@@ -161,11 +161,11 @@ def finetune_or_load_one_TL(
     # ---- Adapter knobs ----
     lr_adapter=1e-4,
     verbose=False,
-    # NEW:
+    # :
     best_by_region=None,
     date=None,
     # -------------------------------------------------
-    # NEW knobs for "load whatever exists" behavior
+    #  knobs for "load whatever exists" behavior
     # -------------------------------------------------
     load_latest: bool = False,  # load newest exp_key ckpt if exists
     skip_if_missing: bool = False,  # if no ckpt found and not force_retrain -> skip (no train)
@@ -277,7 +277,7 @@ def finetune_or_load_one_TL(
         )
 
     # -------------------------------------------------
-    # NEW: optionally skip instead of training
+    # : optionally skip instead of training
     # -------------------------------------------------
     if skip_if_missing and (not force_retrain):
         return (
@@ -558,7 +558,7 @@ def finetune_TL_models_all(
     best_by_region=None,
     date=None,
     # -------------------------
-    # NEW knobs:
+    #  knobs:
     # -------------------------
     load_latest: bool = False,
     skip_if_missing: bool = False,
@@ -653,7 +653,7 @@ def finetune_TL_models_all(
             verbose=verbose,
             best_by_region=best_by_region,
             date=run_date,
-            # NEW:
+            # :
             load_latest=load_latest,
             skip_if_missing=skip_if_missing,
             prefer_tuned_ckpt=prefer_tuned_ckpt,
@@ -661,7 +661,7 @@ def finetune_TL_models_all(
 
         infos[run_key] = {"model_path": path, **(info or {})}
 
-        # NEW: if skipped, do not add to models dict
+        # : if skipped, do not add to models dict
         if info is not None and info.get("skipped", False):
             continue
 

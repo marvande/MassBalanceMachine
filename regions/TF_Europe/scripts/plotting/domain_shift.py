@@ -120,3 +120,55 @@ def plot_domain_shift(shift: dict, monthly_cols: list[str], static_cols: list[st
 
     fig.tight_layout(w_pad=3)
     return fig
+
+
+def plot_domain_shift_across_regions(all_shifts: dict):
+    regions = []
+    joint = []
+    climate = []
+    topo = []
+
+    for key, shift in all_shifts.items():
+        # extract region name from key like "XREG_CH_TO_ISL"
+        region = key.split("_TO_")[-1]
+
+        regions.append(region)
+        joint.append(shift["D_mmd2_joint"])
+        climate.append(shift["D_mmd2_climate"])
+        topo.append(shift["D_mmd2_topo"])
+
+    # sort by joint distance (most shifted first)
+    order = np.argsort(joint)[::-1]
+    regions = [regions[i] for i in order]
+    joint = [joint[i] for i in order]
+    climate = [climate[i] for i in order]
+    topo = [topo[i] for i in order]
+
+    y = np.arange(len(regions))
+    h = 0.25
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    ax.barh(y + h, joint, height=h, label="Joint", color="#3d3d3a")
+    ax.barh(y, climate, height=h, label="Climate", color="#D85A30")
+    ax.barh(y - h, topo, height=h, label="Topo", color="#534AB7")
+
+    # labels
+    ax.set_yticks(y)
+    ax.set_yticklabels(regions)
+    ax.set_xlabel("MMD² distance")
+    ax.set_title("Domain shift: Switzerland → other regions")
+
+    # annotate values
+    for i in range(len(regions)):
+        ax.text(joint[i] + 0.002, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=8)
+        ax.text(climate[i] + 0.002, y[i], f"{climate[i]:.3f}", va="center", fontsize=8)
+        ax.text(topo[i] + 0.002, y[i] - h, f"{topo[i]:.3f}", va="center", fontsize=8)
+
+    ax.legend(frameon=False)
+    ax.grid(axis="x", color="#e0e0e0", linewidth=0.6)
+    ax.set_axisbelow(True)
+    ax.spines[["top", "right"]].set_visible(False)
+
+    plt.tight_layout()
+    return fig

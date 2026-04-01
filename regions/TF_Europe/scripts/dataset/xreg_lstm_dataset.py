@@ -539,42 +539,124 @@ def build_transfer_learning_assets(
 def build_xreg_res_all(
     res_xreg: dict,
     target_source_codes=None,
-    source_col="SOURCE_CODE",
-    ch_code="CH",
-    key_prefix="XREG_CH_TO",
-):
+    region_groups: dict | None = None,
+    source_col: str = "SOURCE_CODE",
+    ch_code: str = "CH",
+    key_prefix: str = "XREG_CH_TO",
+) -> dict:
     """
-    Returns res_all dict: {key: res_like_dict}
-    where each res contains df_train (CH), df_test (only that target region),
-    plus *_aug and pads.
-    """
-    df_test = res_xreg["df_test"]
-    if source_col not in df_test.columns:
-        raise ValueError(f"Missing {source_col} in res_xreg['df_test'].")
+    Build a res_all dict: {key: res_like_dict} where each entry contains
+    df_train (CH) and df_test (one target region or a merged group of regions).
 
+    Individual regions and groups can coexist — groups simply pool the rows
+    of their member codes into a single df_test.
+
+    Parameters
+    ----------
+    res_xreg : dict
+        Output of prepare_monthly_df_crossregional_tgt_to_EU (or similar).
+        Must contain df_train, df_train_aug, df_test, df_test_aug,
+        months_head_pad, months_tail_pad.
+    target_source_codes : list[str] or None
+        Individual region codes to include as standalone entries.
+        If None, auto-discovers all codes in df_test except ch_code,
+        MINUS any codes that are already covered by region_groups.
+    region_groups : dict[str, list[str]] or None
+        Mapping of group name -> list of SOURCE_CODE values to pool.
+        e.g. {"CEU": ["FR", "IT_AT"], "USCA": ["ALA", "CAW"]}
+        Group entries are keyed as "{key_prefix}_{group_name}".
+    source_col : str
+        Column in df_test identifying the source region (default: SOURCE_CODE).
+    ch_code : str
+        Code for the training region to exclude from targets (default: CH).
+    key_prefix : str
+        Prefix for all result keys (default: XREG_CH_TO).
+
+    Returns
+    -------
+    dict
+        Keys are "{key_prefix}_{code_or_group}", values are res-like dicts
+        with df_train, df_train_aug, df_test, df_test_aug, pad keys.
+    """
+    df_test_full = res_xreg["df_test"]
+    df_test_aug_full = res_xreg["df_test_aug"]
+
+    if source_col not in df_test_full.columns:
+        raise ValueError(f"Missing '{source_col}' in res_xreg['df_test'].")
+
+    region_groups = region_groups or {}
+
+    # codes already covered by a group — excluded from individual entries
+    # unless explicitly listed in target_source_codes
+    grouped_codes = {c.upper() for codes in region_groups.values() for c in codes}
+
+    # auto-discover individual codes, excluding CH and grouped codes
     if target_source_codes is None:
-        target_source_codes = sorted(
-            set(df_test[source_col].dropna().unique()) - {ch_code}
+        all_codes = set(
+            df_test_full[source_col].dropna().astype(str).str.upper().unique()
         )
+        target_source_codes = sorted(all_codes - {ch_code.upper()} - grouped_codes)
 
     res_all = {}
-    for sc in target_source_codes:
-        key = f"{key_prefix}_{sc}"
 
-        res_sc = {
+    # --- individual region entries ---
+    for sc in target_source_codes:
+        sc_upper = sc.upper()
+        key = f"{key_prefix}_{sc_upper}"
+
+        mask = df_test_full[source_col].astype(str).str.upper() == sc_upper
+        mask_aug = df_test_aug_full[source_col].astype(str).str.upper() == sc_upper
+
+        df_test_sc = df_test_full.loc[mask].copy()
+        df_test_aug_sc = df_test_aug_full.loc[mask_aug].copy()
+
+        if len(df_test_sc) == 0:
+            print(f"Warning: no test rows found for code '{sc}', skipping.")
+            continue
+
+        res_all[key] = {
             "df_train": res_xreg["df_train"],
             "df_train_aug": res_xreg["df_train_aug"],
-            "df_test": res_xreg["df_test"]
-            .loc[res_xreg["df_test"][source_col] == sc]
-            .copy(),
-            "df_test_aug": res_xreg["df_test_aug"]
-            .loc[res_xreg["df_test_aug"][source_col] == sc]
-            .copy(),
+            "df_test": df_test_sc,
+            "df_test_aug": df_test_aug_sc,
             "months_head_pad": res_xreg["months_head_pad"],
             "months_tail_pad": res_xreg["months_tail_pad"],
         }
 
-        res_all[key] = res_sc
+    # --- grouped region entries ---
+    for group_name, codes in region_groups.items():
+        key = f"{key_prefix}_{group_name}"
+
+        codes_upper = [c.upper() for c in codes]
+
+        mask = df_test_full[source_col].astype(str).str.upper().isin(codes_upper)
+        mask_aug = (
+            df_test_aug_full[source_col].astype(str).str.upper().isin(codes_upper)
+        )
+
+        df_test_group = df_test_full.loc[mask].copy()
+        df_test_aug_group = df_test_aug_full.loc[mask_aug].copy()
+
+        if len(df_test_group) == 0:
+            print(
+                f"Warning: no test rows found for group '{group_name}' "
+                f"(codes: {codes_upper}), skipping."
+            )
+            continue
+
+        print(
+            f"Group '{group_name}': pooled {len(df_test_group)} rows "
+            f"from {codes_upper}."
+        )
+
+        res_all[key] = {
+            "df_train": res_xreg["df_train"],
+            "df_train_aug": res_xreg["df_train_aug"],
+            "df_test": df_test_group,
+            "df_test_aug": df_test_aug_group,
+            "months_head_pad": res_xreg["months_head_pad"],
+            "months_tail_pad": res_xreg["months_tail_pad"],
+        }
 
     return res_all
 

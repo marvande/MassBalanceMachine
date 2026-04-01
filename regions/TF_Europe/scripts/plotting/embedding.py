@@ -20,6 +20,7 @@ from sklearn.cluster import KMeans
 
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.plotting.palettes import get_cmap_hex
+from regions.TF_Europe.scripts.dataset import *
 
 import massbalancemachine as mbm
 
@@ -30,8 +31,8 @@ def plot_tsne_overlap(
     STATIC_COLS: Sequence[str],
     MONTHLY_COLS: Sequence[str],
     *,
-    label_train: str = "Train",  # NEW: actual name shown in legend
-    label_test: str = "Test",  # NEW: actual name shown in legend
+    label_train: str = "Train",  # : actual name shown in legend
+    label_test: str = "Test",  # : actual name shown in legend
     stratify_by: str = "GLACIER",
     n_per_group: int = 100,
     exact: bool = False,
@@ -1072,85 +1073,69 @@ def plot_tsne_overlap_xreg_from_single_res(
     return figs
 
 
-def plot_feature_kde_overlap_xreg_tgt_vs_codes(
-    res_xreg: dict,
+def plot_feature_kde_overlap_xreg_with_shifts(
+    res_all_xreg: dict,
     cfg,
-    features,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
     group_col: str = "SOURCE_CODE",
     target_code: str = "CH",
-    use_aug: bool = False,  # True -> df_train_aug/df_test_aug
-    only_codes=None,  # e.g. ["IT_AT", "FR"]
-    skip_codes=None,  # e.g. ["CH"]
-    output_dir=None,  # e.g. "figures/xreg_kde"
+    use_aug: bool = False,
+    only_codes=None,
+    skip_codes=None,
+    output_dir=None,
     include_tgt_in_title: bool = True,
-):
+) -> dict:
     """
-    Plot KDE-based feature overlap for XREG: CH vs each SOURCE_CODE subset.
-
-    Uses:
-      - CH reference: res_xreg["df_train"] (or "_aug" if use_aug)
-      - Other region: subset of res_xreg["df_test"] by SOURCE_CODE
+    For each XREG transfer key in res_all_xreg, plots KDE feature overlap
+    between CH (train) and the target region (test), with per-variable MMD²
+    annotated in the top-right corner of each subplot.
 
     Parameters
     ----------
-    res_xreg : dict
-        Output dict from prepare_monthly_df_crossregional_tgt_to_EU (or similar),
-        containing df_train/df_test and optionally df_train_aug/df_test_aug.
-        df_test must contain `group_col` (SOURCE_CODE).
+    res_all_xreg : dict
+        Dict keyed by transfer name (e.g. "XREG_CH_TO_NOR"), each value
+        being a dict with "df_train" and "df_test".
     cfg : object
-        Used only for consistent output naming if desired (optional).
-    features : list[str]
-        Feature columns to plot.
+        Config object (used for output path if output_dir is relative).
+    monthly_cols : list[str]
+        Dynamic/climate feature columns.
+    static_cols : list[str]
+        Static/topo feature columns.
+    scaler_m : StandardScaler
+        Fitted scaler for monthly features (used in compute_domain_shift).
+    scaler_s : StandardScaler
+        Fitted scaler for static features (used in compute_domain_shift).
     group_col : str
-        Column to split test set by (default: "SOURCE_CODE").
+        Column identifying source region in df_test (default: "SOURCE_CODE").
     target_code : str
-        Code identifying CH (default: "CH").
+        Code for the training region (default: "CH").
     use_aug : bool
-        If True uses df_train_aug/df_test_aug.
+        If True, uses df_train_aug/df_test_aug instead of df_train/df_test.
     only_codes : list[str] or None
-        If given, only plot these codes.
+        If given, only process these region codes.
     skip_codes : list[str] or None
-        Codes to skip (CH is always skipped by default).
+        Region codes to skip.
     output_dir : str or None
-        If set, saves one PNG per code into this directory.
+        Directory to save PNGs. If None, figures are not saved.
     include_tgt_in_title : bool
-        Adds CH vs CODE title on each figure.
+        Whether to add "CH vs CODE" suptitle to each figure.
 
     Returns
     -------
     dict
-        code -> matplotlib Figure
+        Maps transfer key -> matplotlib Figure
     """
-    # palette (reuse your consistent colors)
     colors = get_cmap_hex(cm.batlow, 10)
     color_dark_blue = colors[0]
-    palette = {"Train": color_dark_blue, "Test": "#b2182b"}  # Train=CH, Test=Other
+    palette = {"Train": color_dark_blue, "Test": "#b2182b"}
 
     target_code = str(target_code).upper()
-    only_set = {c.upper() for c in only_codes} if only_codes else None
     skip_set = {c.upper() for c in (skip_codes or [])}
     skip_set.add(target_code)
-
-    if use_aug:
-        df_ch = res_xreg.get("df_train_aug")
-        df_test_all = res_xreg.get("df_test_aug")
-        suffix = "_aug"
-    else:
-        df_ch = res_xreg.get("df_train")
-        df_test_all = res_xreg.get("df_test")
-        suffix = ""
-
-    if df_ch is None or len(df_ch) == 0:
-        raise ValueError(f"Missing/empty df_train{suffix} in res_xreg.")
-    if df_test_all is None or len(df_test_all) == 0:
-        raise ValueError(f"Missing/empty df_test{suffix} in res_xreg.")
-    if group_col not in df_test_all.columns:
-        raise ValueError(f"'{group_col}' not found in df_test{suffix}.")
-
-    codes = sorted(df_test_all[group_col].dropna().astype(str).str.upper().unique())
-    codes = [c for c in codes if c not in skip_set]
-    if only_set is not None:
-        codes = [c for c in codes if c in only_set]
+    only_set = {c.upper() for c in only_codes} if only_codes else None
 
     if output_dir:
         out_abs = (
@@ -1162,38 +1147,112 @@ def plot_feature_kde_overlap_xreg_tgt_vs_codes(
     else:
         out_abs = None
 
+    suffix = "_aug" if use_aug else ""
+    all_features = monthly_cols + static_cols + ["POINT_BALANCE"]
+
     figs = {}
 
-    for code in codes:
-        df_other = df_test_all[
-            df_test_all[group_col].astype(str).str.upper() == code
-        ].copy()
-        if len(df_other) == 0:
+    for key in tqdm(res_all_xreg, desc="Plotting KDE + MMD²"):
+
+        res_xreg = res_all_xreg[key]
+
+        # --- get train/test dataframes ---
+        df_train = res_xreg.get(f"df_train{suffix}")
+        df_test = res_xreg.get(f"df_test{suffix}")
+
+        if (
+            df_train is None
+            or df_test is None
+            or len(df_train) == 0
+            or len(df_test) == 0
+        ):
+            print(f"Skipping {key}: missing or empty df_train/df_test.")
             continue
 
-        print(
-            f"Plotting XREG KDE: {target_code}(train n={len(df_ch)}) vs {code}(test n={len(df_other)})"
+        # --- infer region code from test set ---
+        if group_col in df_test.columns:
+            codes_in_test = df_test[group_col].dropna().astype(str).str.upper().unique()
+            codes_in_test = [c for c in codes_in_test if c not in skip_set]
+            if only_set is not None:
+                codes_in_test = [c for c in codes_in_test if c in only_set]
+            code = codes_in_test[0] if len(codes_in_test) > 0 else key
+        else:
+            # fall back to parsing the key name e.g. "XREG_CH_TO_NOR" -> "NOR"
+            code = key.split("_TO_")[-1] if "_TO_" in key else key
+
+        if code.upper() in skip_set:
+            continue
+
+        print(f"[{key}] train n={len(df_train)}, test n={len(df_test)}")
+
+        # --- compute per-variable MMD² (includes POINT_BALANCE as monthly col) ---
+        shift = compute_domain_shift(
+            df_src=df_train,
+            df_tgt=df_test,
+            monthly_cols=monthly_cols + ["POINT_BALANCE"],
+            static_cols=static_cols,
+            scaler_m=scaler_m,
+            scaler_s=scaler_s,
+            compute_marginals=True,
         )
 
+        mmd2_per_var = {
+            k.replace("D_mmd2_", ""): v
+            for k, v in shift.items()
+            if k.startswith("D_mmd2_")
+            and k not in {"D_mmd2_joint", "D_mmd2_climate", "D_mmd2_topo"}
+        }
+
+        # --- plot KDE overlap ---
         fig = plot_feature_kde_overlap(
-            df_train=df_ch,
-            df_test=df_other,
-            features=features,
+            df_train=df_train,
+            df_test=df_test,
+            features=all_features,
             palette=palette,
-            outfile=None,  # save here instead (so we control naming)
+            outfile=None,
         )
 
+        # --- annotate each subplot with MMD² ---
+        for ax, feat in zip(fig.axes, all_features):
+            mmd2 = mmd2_per_var.get(feat)
+            if mmd2 is not None:
+                ax.text(
+                    0.97,
+                    0.97,
+                    f"MMD² = {mmd2:.3f}",
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="black",
+                    bbox=dict(
+                        boxstyle="round,pad=0.2",
+                        fc="white",
+                        ec="none",
+                        alpha=0.7,
+                    ),
+                )
+
+        # --- title and layout ---
         if include_tgt_in_title:
-            fig.suptitle(f"XREG feature overlap: {target_code} vs {code}", fontsize=14)
+            fig.suptitle(
+                f"XREG feature overlap: {target_code} vs {code}  "
+                f"(train n={len(df_train)}, test n={len(df_test)})",
+                fontsize=14,
+            )
             fig.tight_layout()
 
+        # --- save ---
         if out_abs:
             out_png = os.path.join(
-                out_abs, f"xreg_kde_overlap_{target_code}_vs_{code}{suffix}.png"
+                out_abs,
+                f"xreg_kde_overlap_{target_code}_vs_{code}{suffix}.png",
             )
             fig.savefig(out_png, dpi=300, bbox_inches="tight")
+            print(f"  Saved -> {out_png}")
 
-        figs[code] = fig
+        figs[key] = fig
 
     return figs
 
