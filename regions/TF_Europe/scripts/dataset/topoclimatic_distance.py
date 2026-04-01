@@ -132,7 +132,18 @@ def compute_domain_shift(
 ) -> dict:
     """
     Assess input-space domain shift between source and target.
+
+    MMD² values are clipped to zero — the unbiased estimator can return small
+    negative values when distributions are very similar or sample sizes are
+    small (especially for topo variables at glacier level). Negative MMD²
+    is a statistical zero and clipping avoids propagating sign artifacts
+    into joint distances and per-variable summaries.
+    Energy distance is always non-negative by construction.
     """
+
+    def _clip_mmd2(val: float) -> float:
+        """Clip unbiased MMD² estimate to zero."""
+        return float(max(val, 0.0))
 
     # --- climate: row-level ---
     Xm_src = df_src[monthly_cols].to_numpy(dtype=np.float64)
@@ -154,9 +165,9 @@ def compute_domain_shift(
     Xs_tgt_z = scaler_s.transform(Xs_tgt)
 
     # --- distances ---
-    D_mmd2_climate = mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, seed=seed + 2)
+    D_mmd2_climate = _clip_mmd2(mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, seed=seed + 2))
     D_energy_climate = energy_distance(Xm_src_z, Xm_tgt_z, seed=seed + 3)
-    D_mmd2_topo = mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, seed=seed + 4)
+    D_mmd2_topo = _clip_mmd2(mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, seed=seed + 4))
     D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 5)
 
     out = {
@@ -179,7 +190,7 @@ def compute_domain_shift(
     if compute_marginals:
         # climate vars: row-level
         for j, col in enumerate(monthly_cols):
-            out[f"D_mmd2_{col}"] = float(
+            out[f"D_mmd2_{col}"] = _clip_mmd2(
                 mmd_squared_unbiased(
                     Xm_src_z[:, j : j + 1],
                     Xm_tgt_z[:, j : j + 1],
@@ -197,7 +208,7 @@ def compute_domain_shift(
         # topo vars: glacier-level
         offset = len(monthly_cols)
         for j, col in enumerate(static_cols):
-            out[f"D_mmd2_{col}"] = float(
+            out[f"D_mmd2_{col}"] = _clip_mmd2(
                 mmd_squared_unbiased(
                     Xs_src_z[:, j : j + 1],
                     Xs_tgt_z[:, j : j + 1],

@@ -129,52 +129,108 @@ def plot_domain_shift(
 
 
 def plot_domain_shift_across_regions(all_shifts: dict):
-    regions = []
-    joint = []
-    climate = []
-    topo = []
+    """
+    Plot domain shift across regions as two side-by-side horizontal bar charts:
+      - Subplot 1: MMD² (joint, climate, topo), ordered by joint MMD²
+      - Subplot 2: Energy distance (joint, climate, topo), same region order
+
+    Parameters
+    ----------
+    all_shifts : dict
+        Keys like "XREG_CH_TO_ISL", values are shift dicts from
+        compute_domain_shift (must contain D_mmd2_* and D_energy_* keys).
+
+    Returns
+    -------
+    matplotlib Figure
+    """
+    regions, mmd2_joint, mmd2_climate, mmd2_topo = [], [], [], []
+    en_joint, en_climate, en_topo = [], [], []
 
     for key, shift in all_shifts.items():
-        # extract region name from key like "XREG_CH_TO_ISL"
         region = key.split("_TO_")[-1]
-
         regions.append(region)
-        joint.append(shift["D_mmd2_joint"])
-        climate.append(shift["D_mmd2_climate"])
-        topo.append(shift["D_mmd2_topo"])
+        mmd2_joint.append(shift["D_mmd2_joint"])
+        mmd2_climate.append(shift["D_mmd2_climate"])
+        mmd2_topo.append(shift["D_mmd2_topo"])
+        en_joint.append(shift["D_energy_joint"])
+        en_climate.append(shift["D_energy_climate"])
+        en_topo.append(shift["D_energy_topo"])
 
-    # sort by joint distance (most shifted first)
-    order = np.argsort(joint)[::-1]
+    # --- sort by MMD² joint (most shifted first), apply same order to energy ---
+    order = np.argsort(mmd2_joint)[::-1]
     regions = [regions[i] for i in order]
-    joint = [joint[i] for i in order]
-    climate = [climate[i] for i in order]
-    topo = [topo[i] for i in order]
+    mmd2_joint = [mmd2_joint[i] for i in order]
+    mmd2_climate = [mmd2_climate[i] for i in order]
+    mmd2_topo = [mmd2_topo[i] for i in order]
+    en_joint = [en_joint[i] for i in order]
+    en_climate = [en_climate[i] for i in order]
+    en_topo = [en_topo[i] for i in order]
 
     y = np.arange(len(regions))
     h = 0.25
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    colors = {
+        "joint": "#3d3d3a",
+        "climate": "#D85A30",
+        "topo": "#534AB7",
+    }
 
-    ax.barh(y + h, joint, height=h, label="Joint", color="#3d3d3a")
-    ax.barh(y, climate, height=h, label="Climate", color="#D85A30")
-    ax.barh(y - h, topo, height=h, label="Topo", color="#534AB7")
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(16, max(4, len(regions) * 0.8)),
+        sharey=True,
+    )
 
-    # labels
-    ax.set_yticks(y)
-    ax.set_yticklabels(regions)
-    ax.set_xlabel("MMD² distance")
-    ax.set_title("Domain shift: Switzerland → other regions")
+    def _draw_bars(ax, joint, climate, topo, xlabel, title):
+        ax.barh(y + h, joint, height=h, label="Joint", color=colors["joint"])
+        ax.barh(y, climate, height=h, label="Climate", color=colors["climate"])
+        ax.barh(y - h, topo, height=h, label="Topo", color=colors["topo"])
 
-    # annotate values
-    for i in range(len(regions)):
-        ax.text(joint[i] + 0.002, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=8)
-        ax.text(climate[i] + 0.002, y[i], f"{climate[i]:.3f}", va="center", fontsize=8)
-        ax.text(topo[i] + 0.002, y[i] - h, f"{topo[i]:.3f}", va="center", fontsize=8)
+        # value annotations
+        x_pad = max(joint + climate + topo) * 0.01
+        for i in range(len(regions)):
+            ax.text(
+                joint[i] + x_pad, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=8
+            )
+            ax.text(
+                climate[i] + x_pad, y[i], f"{climate[i]:.3f}", va="center", fontsize=8
+            )
+            ax.text(
+                topo[i] + x_pad, y[i] - h, f"{topo[i]:.3f}", va="center", fontsize=8
+            )
 
-    ax.legend(frameon=False)
-    ax.grid(axis="x", color="#e0e0e0", linewidth=0.6)
-    ax.set_axisbelow(True)
-    ax.spines[["top", "right"]].set_visible(False)
+        ax.set_yticks(y)
+        ax.set_yticklabels(regions)
+        ax.set_xlabel(xlabel)
+        ax.set_title(title)
+        ax.legend(frameon=False)
+        ax.grid(axis="x", color="#e0e0e0", linewidth=0.6)
+        ax.set_axisbelow(True)
+        ax.spines[["top", "right"]].set_visible(False)
 
+    _draw_bars(
+        axes[0],
+        mmd2_joint,
+        mmd2_climate,
+        mmd2_topo,
+        xlabel="MMD² distance",
+        title="MMD²",
+    )
+    _draw_bars(
+        axes[1],
+        en_joint,
+        en_climate,
+        en_topo,
+        xlabel="Energy distance",
+        title="Energy distance",
+    )
+
+    fig.suptitle(
+        "Domain shift: Switzerland → other regions",
+        fontsize=13,
+        y=1.01,
+    )
     plt.tight_layout()
     return fig

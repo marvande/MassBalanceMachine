@@ -606,7 +606,8 @@ def evaluate_all_models(
     figs_by_key = {}
 
     for i, key in enumerate(keys):
-        model = models_by_key[key]
+        domain_shift_key = complement_key + key
+        model = models_by_key[domain_shift_key]
         # print(f"\nEvaluating {key} ...")
 
         # --- individual fig ---
@@ -614,21 +615,21 @@ def evaluate_all_models(
             cfg=cfg,
             model=model,
             device=device,
-            lstm_assets_for_key=lstm_assets_by_key[key],
+            lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
             ax=None,
             ax_xlim=ax_xlim,
             ax_ylim=ax_ylim,
-            title=f"{key} – Pred vs Truth (Test)",
+            title=f"{domain_shift_key} – Pred vs Truth (Test)",
             legend_fontsize=14,
         )
 
-        metrics["key"] = key
+        metrics["key"] = domain_shift_key
         rows.append(metrics)
-        preds_by_key[key] = df_preds
-        figs_by_key[key] = fig_ind
+        preds_by_key[domain_shift_key] = df_preds
+        figs_by_key[domain_shift_key] = fig_ind
 
         if save_abs:
-            out_png = os.path.join(save_abs, f"pred_vs_truth_{key}.png")
+            out_png = os.path.join(save_abs, f"pred_vs_truth_{domain_shift_key}.png")
             fig_ind.savefig(out_png, dpi=200, bbox_inches="tight")
         plt.close(fig_ind)  # prevents duplicate display in notebooks
 
@@ -639,7 +640,7 @@ def evaluate_all_models(
                 cfg=cfg,
                 model=model,
                 device=device,
-                lstm_assets_for_key=lstm_assets_by_key[key],
+                lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
                 ax=ax_grid,
                 ax_xlim=ax_xlim,
                 ax_ylim=ax_ylim,
@@ -647,24 +648,25 @@ def evaluate_all_models(
                 legend_fontsize=15,
             )
 
-        # --- add domain shift annotation ---
-        domain_shift_key = complement_key + key
+        # --- add domain shift annotation (MMD² + energy distance) ---
         if domain_shifts is not None and domain_shift_key in domain_shifts:
             shift = domain_shifts[domain_shift_key]
 
             txt = (
                 f"MMD² joint: {shift['D_mmd2_joint']:.3f}\n"
-                f"clim: {shift['D_mmd2_climate']:.3f} | topo: {shift['D_mmd2_topo']:.3f}"
+                f"clim: {shift['D_mmd2_climate']:.3f} | topo: {shift['D_mmd2_topo']:.3f}\n"
+                f"E joint: {shift['D_energy_joint']:.3f}\n"
+                f"clim: {shift['D_energy_climate']:.3f} | topo: {shift['D_energy_topo']:.3f}"
             )
 
             ax_grid.text(
                 0.98,
-                0.98,  # <-- move to top-right
+                0.98,
                 txt,
                 transform=ax_grid.transAxes,
                 va="top",
-                ha="right",  # <-- align text to the right
-                fontsize=12,
+                ha="right",
+                fontsize=11,
                 color="red",
                 bbox=dict(
                     boxstyle="round,pad=0.3",

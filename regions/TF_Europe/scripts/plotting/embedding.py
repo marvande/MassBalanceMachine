@@ -1154,7 +1154,14 @@ def plot_feature_kde_overlap_xreg_with_shifts(
         out_abs = None
 
     suffix = "_aug" if use_aug else ""
-    all_features = monthly_cols + static_cols
+    # POINT_BALANCE is always added here so the scaler (fitted on
+    # MONTHLY_COLS + ["POINT_BALANCE"]) gets the right number of features,
+    # regardless of whether the caller included it in monthly_cols or not.
+    pmb_col = "POINT_BALANCE"
+    monthly_cols_with_pmb = (
+        monthly_cols if pmb_col in monthly_cols else monthly_cols + [pmb_col]
+    )
+    all_features = monthly_cols_with_pmb + static_cols
 
     figs = {}
 
@@ -1206,7 +1213,7 @@ def plot_feature_kde_overlap_xreg_with_shifts(
         shift = compute_domain_shift(
             df_src=df_train,
             df_tgt=df_test,
-            monthly_cols=monthly_cols,
+            monthly_cols=monthly_cols_with_pmb,
             static_cols=static_cols,
             scaler_m=scaler_m,
             scaler_s=scaler_s,
@@ -1219,6 +1226,12 @@ def plot_feature_kde_overlap_xreg_with_shifts(
             if k.startswith("D_mmd2_")
             and k not in {"D_mmd2_joint", "D_mmd2_climate", "D_mmd2_topo"}
         }
+        energy_per_var = {
+            k.replace("D_energy_", ""): v
+            for k, v in shift.items()
+            if k.startswith("D_energy_")
+            and k not in {"D_energy_joint", "D_energy_climate", "D_energy_topo"}
+        }
 
         # --- plot KDE overlap ---
         fig = plot_feature_kde_overlap(
@@ -1229,14 +1242,20 @@ def plot_feature_kde_overlap_xreg_with_shifts(
             outfile=None,
         )
 
-        # --- annotate each subplot with MMD² ---
+        # --- annotate each subplot with MMD² and energy distance ---
         for ax, feat in zip(fig.axes, all_features):
             mmd2 = mmd2_per_var.get(feat)
+            energy = energy_per_var.get(feat)
+            lines = []
             if mmd2 is not None:
+                lines.append(f"MMD² = {mmd2:.3f}")
+            if energy is not None:
+                lines.append(f"E    = {energy:.3f}")
+            if lines:
                 ax.text(
                     0.97,
                     0.97,
-                    f"MMD² = {mmd2:.3f}",
+                    "\n".join(lines),
                     transform=ax.transAxes,
                     ha="right",
                     va="top",
