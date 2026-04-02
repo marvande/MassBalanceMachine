@@ -16,7 +16,7 @@ from scripts.common import (
     seed_all,
 )
 
-# from regions.Switzerland.scripts.helpers import get_cmap_hex
+# from regions.RGI_11_Switzerland.scripts.helpers import get_cmap_hex
 
 # warnings.filterwarnings('ignore')
 

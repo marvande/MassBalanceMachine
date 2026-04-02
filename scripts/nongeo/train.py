@@ -32,8 +32,8 @@ from scripts.nongeo.utils import (
     setFeatures,
 )
 
-from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.nn_helpers import plot_training_history
+from regions.RGI_11_Switzerland.scripts.helpers import get_cmap_hex
+from regions.RGI_11_Switzerland.scripts.nn_helpers import plot_training_history
 
 warnings.filterwarnings("ignore")
 

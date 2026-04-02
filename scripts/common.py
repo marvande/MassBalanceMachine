@@ -8,19 +8,21 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 import massbalancemachine as mbm
-from regions.Switzerland.scripts.geodetic.geodetic_processing import get_geodetic_MB
-from regions.Switzerland.scripts.config_CH import (
+from regions.RGI_11_Switzerland.scripts.geodetic.geodetic_processing import (
+    get_geodetic_MB,
+)
+from regions.RGI_11_Switzerland.scripts.config_CH import (
     path_PMB_GLAMOS_csv,
     path_ERA5_raw,
     path_pcsr,
 )
 
-from regions.Switzerland.scripts.dataset.data_loader import (
+from regions.RGI_11_Switzerland.scripts.dataset.data_loader import (
     process_or_load_data,
     get_CV_splits,
     get_stakes_data,
 )
-from regions.Switzerland.scripts.utils import seed_all
+from regions.RGI_11_Switzerland.scripts.utils import seed_all
 
 _default_test_glaciers = [
     "tortin",

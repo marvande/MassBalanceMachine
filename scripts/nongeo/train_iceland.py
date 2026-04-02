@@ -31,7 +31,7 @@ from scripts.nongeo.utils import (
     getLogDir,
 )
 
-from regions.Switzerland.scripts.nn_helpers import plot_training_history
+from regions.RGI_11_Switzerland.scripts.nn_helpers import plot_training_history
 
 # data = pd.read_csv('./notebooks/example_data/iceland/files/iceland_monthly_dataset.csv')
 # print('Number of winter and annual samples:', len(data))

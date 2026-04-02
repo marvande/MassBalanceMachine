@@ -25,8 +25,8 @@ from scripts.nongeo.utils import (
     setFeatures,
 )
 
-from regions.Switzerland.scripts.helpers import get_cmap_hex
-from regions.Switzerland.scripts.plots import (
+from regions.RGI_11_Switzerland.scripts.helpers import get_cmap_hex
+from regions.RGI_11_Switzerland.scripts.plots import (
     compute_seasonal_scores,
     plot_predictions_summary,
     predVSTruth,
