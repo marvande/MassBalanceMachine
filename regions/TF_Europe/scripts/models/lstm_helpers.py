@@ -556,3 +556,132 @@ def train_crossregional_models_all(
         infos[key] = {"model_path": path, **(info or {})}
 
     return models, infos
+
+
+def train_or_load_one_source_model(
+    cfg,
+    key: str,
+    lstm_assets: dict,  # only needs ds_train, train_idx, val_idx
+    best_params: dict,
+    device,
+    models_dir="models",
+    prefix="lstm_xreg",
+    train_flag=True,
+    force_retrain=False,
+    epochs=150,
+    batch_size_train=64,
+    batch_size_val=128,
+    verbose=True,
+    date=None,
+):
+    """Train or load a single source-region model. No test set needed."""
+    run_date = datetime.now().strftime("%Y-%m-%d") if date is None else date
+    os.makedirs(models_dir, exist_ok=True)
+    model_filename = os.path.join(models_dir, f"{prefix}_{key}_{run_date}.pt")
+
+    model = mbm.models.LSTM_MB.build_model_from_params(
+        cfg, best_params, device, verbose=verbose
+    )
+    loss_fn = mbm.models.LSTM_MB.resolve_loss_fn(best_params)
+
+    # Load existing checkpoint if available and not forcing retrain
+    if train_flag and (not force_retrain) and os.path.exists(model_filename):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+        return model, model_filename, None
+
+    if not train_flag and not os.path.exists(model_filename):
+        raise FileNotFoundError(f"No checkpoint found for {key}: {model_filename}")
+
+    if not train_flag and os.path.exists(model_filename):
+        state = torch.load(model_filename, map_location=device)
+        model.load_state_dict(state)
+        return model, model_filename, None
+
+    # --- Train ---
+    mbm.utils.seed_all(cfg.seed)
+
+    ds_train = lstm_assets["ds_train"]
+    train_idx = lstm_assets["train_idx"]
+    val_idx = lstm_assets["val_idx"]
+
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        ds_train
+    )
+
+    train_dl, val_dl = ds_train_copy.make_loaders(
+        train_idx=train_idx,
+        val_idx=val_idx,
+        batch_size_train=batch_size_train,
+        batch_size_val=batch_size_val,
+        seed=cfg.seed,
+        fit_and_transform=True,
+        shuffle_train=True,
+        use_weighted_sampler=True,
+        verbose=verbose,
+    )
+
+    if os.path.exists(model_filename):
+        os.remove(model_filename)
+        if verbose:
+            print(f"Deleted existing model file: {model_filename}")
+
+    history, best_val, best_state = model.train_loop(
+        device=device,
+        train_dl=train_dl,
+        val_dl=val_dl,
+        epochs=epochs,
+        lr=best_params["lr"],
+        weight_decay=best_params["weight_decay"],
+        clip_val=1,
+        sched_factor=0.5,
+        sched_patience=6,
+        sched_threshold=0.01,
+        sched_threshold_mode="rel",
+        sched_cooldown=1,
+        sched_min_lr=1e-6,
+        es_patience=15,
+        es_min_delta=1e-4,
+        log_every=5,
+        verbose=verbose,
+        save_best_path=model_filename,
+        loss_fn=loss_fn,
+    )
+
+    if verbose:
+        plot_history_lstm(history)
+
+    state = torch.load(model_filename, map_location=device)
+    model.load_state_dict(state)
+
+    return model, model_filename, {"history": history, "best_val": best_val}
+
+
+def prepare_test_loader_for_target(
+    cfg,
+    model,
+    lstm_assets_src: dict,  # needs ds_train (for scaler fitting)
+    lstm_assets_tgt: dict,  # needs ds_test
+    batch_size_test=128,
+):
+    """Given a trained model and a target's test assets, build the test loader."""
+    ds_train_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        lstm_assets_src["ds_train"]
+    )
+    ds_test_copy = mbm.data_processing.MBSequenceDataset._clone_untransformed_dataset(
+        lstm_assets_tgt["ds_test"]
+    )
+
+    # fit scaler on train, apply to test
+    ds_train_copy.make_loaders(
+        train_idx=lstm_assets_src["train_idx"],
+        val_idx=lstm_assets_src["val_idx"],
+        fit_and_transform=True,
+        seed=cfg.seed,
+    )
+
+    test_dl = mbm.data_processing.MBSequenceDataset.make_test_loader(
+        ds_test_copy, ds_train_copy, batch_size=batch_size_test, seed=cfg.seed
+    )
+
+    return test_dl, ds_test_copy

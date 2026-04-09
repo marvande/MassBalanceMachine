@@ -86,57 +86,41 @@ def prepare_monthly_df_xreg_SOURCE_to_EU(
     paths,
     vois_climate,
     vois_topographical,
-    source_code: str,  # e.g. "CH", "NOR", "ISL"
-    run_flag: bool = True,  # True recompute, False load
-    region_name: str | None = None,  # default: f"XREG_{source_code}_TO_EU"
-    region_id: int = 11,  # arbitrary/int tag used by your pipeline
-    csv_subfolder: (
-        str | None
-    ) = None,  # default: f"CrossRegional/{source_code}_to_Europe/csv"
+    source_code: str,
+    run_flag: bool = True,
+    region_name: str | None = None,
+    region_id: int = 11,
+    csv_subfolder: str | None = None,
 ):
-    """
-    Build ONE monthly-prepped dataset for cross-regional experiments:
-      - data  = concatenation of all Europe sources (as provided by `dfs`)
-      - train = glaciers from `source_code`
-      - test  = all non-`source_code` glaciers
-
-    Parameters
-    ----------
-    source_code:
-        Source region code used for training split (e.g. "CH", "NOR", "ISL").
-        The test set becomes all glaciers NOT in this code.
-
-    Returns
-    -------
-    res : dict
-        Same output dict as prepare_monthly_dfs_with_padding (df_train/df_test/aug/etc.)
-    split_info : dict
-        {"train_glaciers": [...], "test_glaciers": [...]}
-    """
-
     source_code = str(source_code).strip().upper()
     if region_name is None:
         region_name = f"XREG_{source_code}_TO_EU"
     if csv_subfolder is None:
         csv_subfolder = f"CrossRegional/{source_code}_to_Europe/csv"
 
-    # 1) Concatenate all raw stake rows
     df_all = build_xreg_df_eu(dfs)
-
-    # 2) Define split: train = source_code, test = non-source_code
     train_glaciers, test_glaciers = compute_xreg_test_glaciers(
         df_all, target_code=source_code
     )
 
-    # 3) Choose an output folder for this experiment
     paths_ = paths.copy()
     paths_["csv_path"] = os.path.join(cfg.dataPath, path_PMB_WGMS_csv, csv_subfolder)
     os.makedirs(paths_["csv_path"], exist_ok=True)
 
-    logging.info(
-        f"Preparing cross-regional monthlies: {region_name} (run_flag={run_flag}) | "
-        f"train({source_code})={len(train_glaciers)} | test(non-{source_code})={len(test_glaciers)}"
+    # Fall back to recomputing if cache CSVs don't exist yet
+    monthly_csv = os.path.join(
+        paths_["csv_path"], f"{region_name}_wgms_dataset_monthly.csv"
     )
+    monthly_aug_csv = os.path.join(
+        paths_["csv_path"], f"{region_name}_wgms_dataset_monthly_Aug.csv"
+    )
+    if not run_flag and not (
+        os.path.isfile(monthly_csv) and os.path.isfile(monthly_aug_csv)
+    ):
+        logging.info(
+            f"Cache CSVs not found for {region_name}, recomputing despite run_flag=False."
+        )
+        run_flag = True
 
     res = prepare_monthly_dfs_with_padding(
         cfg=cfg,
@@ -151,19 +135,6 @@ def prepare_monthly_df_xreg_SOURCE_to_EU(
     )
 
     return res, {"train_glaciers": train_glaciers, "test_glaciers": test_glaciers}
-
-
-# # ---- Optional thin wrappers for backwards compatibility ----
-# def prepare_monthly_df_xreg_CH_to_EU(*args, **kwargs):
-#     return prepare_monthly_df_xreg_SOURCE_to_EU(*args, source_code="CH", **kwargs)
-
-
-# def prepare_monthly_df_xreg_NOR_to_EU(*args, **kwargs):
-#     return prepare_monthly_df_xreg_SOURCE_to_EU(*args, source_code="NOR", **kwargs)
-
-
-# def prepare_monthly_df_xreg_ISL_to_EU(*args, **kwargs):
-#     return prepare_monthly_df_xreg_SOURCE_to_EU(*args, source_code="ISL", **kwargs)
 
 
 import os

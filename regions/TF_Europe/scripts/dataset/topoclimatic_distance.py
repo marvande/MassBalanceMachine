@@ -4,6 +4,65 @@ from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
 from scipy.stats import wasserstein_distance
 from sklearn.preprocessing import StandardScaler
+import torch
+from geomloss import SamplesLoss
+
+
+def _estimate_blur(
+    X: np.ndarray,
+    Y: np.ndarray,
+    blur_quantile_multiplier: float = 0.1,
+    max_points: int = 4000,
+    seed: int = 0,
+) -> float:
+    """Estimate blur from median pairwise squared distance on pooled sample."""
+    rng = np.random.default_rng(seed)
+    Z = np.vstack([X, Y]).astype(np.float32)
+    if len(Z) > max_points:
+        Z = Z[rng.choice(len(Z), size=max_points, replace=False)]
+
+    n = len(Z)
+    n_pairs = min(20000, n * (n - 1) // 2)
+    i = rng.integers(0, n, size=n_pairs)
+    j = rng.integers(0, n, size=n_pairs)
+    mask = i != j
+    i, j = i[mask], j[mask]
+
+    if len(i) == 0:
+        return 0.5
+
+    sq_dists = np.sum((Z[i] - Z[j]) ** 2, axis=1)
+    median_sq_dist = max(float(np.median(sq_dists)), 1e-8)
+    return max(float(np.sqrt(blur_quantile_multiplier * median_sq_dist)), 1e-4)
+
+
+def _sinkhorn_distance(
+    X: np.ndarray,
+    Y: np.ndarray,
+    blur: float = 0.5,
+    max_samples: int = 5000,
+    device: str = "cpu",
+    seed: int = 0,
+) -> float:
+    """Sinkhorn divergence between two sets of samples."""
+    rng = np.random.default_rng(seed)
+
+    def _subsample(A):
+        if len(A) <= max_samples:
+            return A
+        return A[rng.choice(len(A), size=max_samples, replace=False)]
+
+    X = _subsample(X).astype(np.float32)
+    Y = _subsample(Y).astype(np.float32)
+
+    loss_fn = SamplesLoss(loss="sinkhorn", p=2, blur=blur, scaling=0.9, debias=True)
+    Xt = torch.as_tensor(X, dtype=torch.float32, device=device)
+    Yt = torch.as_tensor(Y, dtype=torch.float32, device=device)
+    a = torch.ones(len(Xt), device=device) / len(Xt)
+    b = torch.ones(len(Yt), device=device) / len(Yt)
+
+    with torch.no_grad():
+        return float(loss_fn(a, Xt, b, Yt).item())
 
 
 def compute_wasserstein_per_var(df_src, df_tgt, cols, id_col="ID"):
@@ -124,36 +183,42 @@ def compute_domain_shift(
     df_tgt: pd.DataFrame,
     monthly_cols: list[str],
     static_cols: list[str],
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    id_col: str = "ID",
     glacier_col: str = "GLACIER",
     seed: int = 0,
     compute_marginals: bool = False,
     scaler_m: StandardScaler | None = None,
     scaler_s: StandardScaler | None = None,
+    device: str = "cpu",
 ) -> dict:
     """
     Assess input-space domain shift between source and target.
-
-    MMD² values are clipped to zero — the unbiased estimator can return small
-    negative values when distributions are very similar or sample sizes are
-    small (especially for topo variables at glacier level). Negative MMD²
-    is a statistical zero and clipping avoids propagating sign artifacts
-    into joint distances and per-variable summaries.
-    Energy distance is always non-negative by construction.
+    - Climate: row-level (each monthly observation is a genuine data point)
+    - Topo: ID-level deduplicated (.first() for static, .mean() for ELEVATION_DIFFERENCE)
+    Computes MMD², energy distance, and Sinkhorn divergence for climate and topo.
     """
 
     def _clip_mmd2(val: float) -> float:
-        """Clip unbiased MMD² estimate to zero."""
         return float(max(val, 0.0))
+
+    pure_static = [c for c in static_cols if c != elev_diff_col]
+
+    def _stake_topo(df):
+        parts = [df.groupby(id_col)[pure_static].first()]
+        if elev_diff_col in static_cols:
+            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
 
     # --- climate: row-level ---
     Xm_src = df_src[monthly_cols].to_numpy(dtype=np.float64)
     Xm_tgt = df_tgt[monthly_cols].to_numpy(dtype=np.float64)
 
-    # --- topo: glacier-level (deduplicated) ---
-    Xs_src = df_src.groupby(glacier_col)[static_cols].first().to_numpy(dtype=np.float64)
-    Xs_tgt = df_tgt.groupby(glacier_col)[static_cols].first().to_numpy(dtype=np.float64)
+    # --- topo: ID-level deduplicated ---
+    Xs_src = _stake_topo(df_src)
+    Xs_tgt = _stake_topo(df_tgt)
 
-    # --- scalers (fit if not provided) ---
+    # --- scalers ---
     if scaler_m is None:
         scaler_m = StandardScaler().fit(np.vstack([Xm_src, Xm_tgt]))
     if scaler_s is None:
@@ -164,48 +229,66 @@ def compute_domain_shift(
     Xs_src_z = scaler_s.transform(Xs_src)
     Xs_tgt_z = scaler_s.transform(Xs_tgt)
 
+    # --- blur estimates (one per feature space) ---
+    blur_m = _estimate_blur(Xm_src_z, Xm_tgt_z, seed=seed)
+    blur_s = _estimate_blur(Xs_src_z, Xs_tgt_z, seed=seed + 1)
+
     # --- distances ---
     D_mmd2_climate = _clip_mmd2(mmd_squared_unbiased(Xm_src_z, Xm_tgt_z, seed=seed + 2))
     D_energy_climate = energy_distance(Xm_src_z, Xm_tgt_z, seed=seed + 3)
-    D_mmd2_topo = _clip_mmd2(mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, seed=seed + 4))
-    D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 5)
+    D_sinkhorn_climate = _sinkhorn_distance(
+        Xm_src_z, Xm_tgt_z, blur=blur_m, device=device, seed=seed + 4
+    )
+
+    D_mmd2_topo = _clip_mmd2(mmd_squared_unbiased(Xs_src_z, Xs_tgt_z, seed=seed + 5))
+    D_energy_topo = energy_distance(Xs_src_z, Xs_tgt_z, seed=seed + 6)
+    D_sinkhorn_topo = _sinkhorn_distance(
+        Xs_src_z, Xs_tgt_z, blur=blur_s, device=device, seed=seed + 7
+    )
 
     out = {
         "n_src_rows": len(Xm_src),
         "n_tgt_rows": len(Xm_tgt),
-        "n_src_glaciers": len(Xs_src),
-        "n_tgt_glaciers": len(Xs_tgt),
-        # --- joint ---
+        "n_src_glaciers": df_src[glacier_col].nunique(),
+        "n_tgt_glaciers": df_tgt[glacier_col].nunique(),
+        "n_src_ids": df_src[id_col].nunique(),
+        "n_tgt_ids": df_tgt[id_col].nunique(),
+        # --- joint (equal weighting of climate and topo) ---
         "D_mmd2_joint": 0.5 * D_mmd2_climate + 0.5 * D_mmd2_topo,
         "D_energy_joint": 0.5 * D_energy_climate + 0.5 * D_energy_topo,
-        # --- climate only ---
+        "D_sinkhorn_joint": 0.5 * D_sinkhorn_climate + 0.5 * D_sinkhorn_topo,
+        # --- climate ---
         "D_mmd2_climate": D_mmd2_climate,
         "D_energy_climate": D_energy_climate,
-        # --- topo only ---
+        "D_sinkhorn_climate": D_sinkhorn_climate,
+        # --- topo ---
         "D_mmd2_topo": D_mmd2_topo,
         "D_energy_topo": D_energy_topo,
+        "D_sinkhorn_topo": D_sinkhorn_topo,
     }
 
-    # --- optional per-variable marginal distances ---
     if compute_marginals:
-        # climate vars: row-level
         for j, col in enumerate(monthly_cols):
             out[f"D_mmd2_{col}"] = _clip_mmd2(
                 mmd_squared_unbiased(
-                    Xm_src_z[:, j : j + 1],
-                    Xm_tgt_z[:, j : j + 1],
-                    seed=seed + 10 + j,
+                    Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 10 + j
                 )
             )
             out[f"D_energy_{col}"] = float(
                 energy_distance(
-                    Xm_src_z[:, j : j + 1],
-                    Xm_tgt_z[:, j : j + 1],
-                    seed=seed + 100 + j,
+                    Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 100 + j
                 )
             )
+            out[f"D_sinkhorn_{col}"] = _sinkhorn_distance(
+                Xm_src_z[:, j : j + 1],
+                Xm_tgt_z[:, j : j + 1],
+                blur=_estimate_blur(
+                    Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 200 + j
+                ),
+                device=device,
+                seed=seed + 300 + j,
+            )
 
-        # topo vars: glacier-level
         offset = len(monthly_cols)
         for j, col in enumerate(static_cols):
             out[f"D_mmd2_{col}"] = _clip_mmd2(
@@ -221,6 +304,17 @@ def compute_domain_shift(
                     Xs_tgt_z[:, j : j + 1],
                     seed=seed + 100 + offset + j,
                 )
+            )
+            out[f"D_sinkhorn_{col}"] = _sinkhorn_distance(
+                Xs_src_z[:, j : j + 1],
+                Xs_tgt_z[:, j : j + 1],
+                blur=_estimate_blur(
+                    Xs_src_z[:, j : j + 1],
+                    Xs_tgt_z[:, j : j + 1],
+                    seed=seed + 200 + offset + j,
+                ),
+                device=device,
+                seed=seed + 300 + offset + j,
             )
 
     return out

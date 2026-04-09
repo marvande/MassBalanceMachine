@@ -128,7 +128,7 @@ def plot_domain_shift(
     return fig
 
 
-def plot_domain_shift_across_regions(all_shifts: dict):
+def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     """
     Plot domain shift across regions as two side-by-side horizontal bar charts:
       - Subplot 1: MMD² (joint, climate, topo), ordered by joint MMD²
@@ -228,7 +228,7 @@ def plot_domain_shift_across_regions(all_shifts: dict):
     )
 
     fig.suptitle(
-        "Domain shift: Switzerland → other regions",
+        f"Domain shift: {src_region} → other regions",
         fontsize=13,
         y=1.01,
     )

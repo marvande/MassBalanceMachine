@@ -719,7 +719,7 @@ def build_or_load_lstm_all_xreg(
     target_source_codes=None,
     region_groups: dict | None = None,
     source_col="SOURCE_CODE",
-    ch_code="CH",
+    ch_code="CH",  # the source/train region
     cache_dir="logs/LSTM_cache",
     force_recompute_train=False,
     force_recompute_tests=False,
@@ -729,31 +729,13 @@ def build_or_load_lstm_all_xreg(
     expect_target=True,
     strict_nan=True,
 ):
-    """
-    Build or load LSTM datasets for cross-regional transfer (CH → targets).
-
-    Supports both individual region codes and grouped regions (pooled df_test).
-    Groups are keyed as "XREG_CH_TO_{GROUP_NAME}" and pool all member codes
-    into a single test dataset.
-
-    Parameters
-    ----------
-    region_groups : dict[str, list[str]] or None
-        e.g. {"CEU": ["FR", "IT_AT"], "USCA": ["ALA", "CAW"]}
-        Codes in groups are excluded from individual auto-discovery unless
-        explicitly listed in target_source_codes.
-    (all other parameters unchanged from original)
-    """
     logging.info("\n" + "=" * 60)
-    logging.info("CROSS-REGIONAL LSTM DATASET PREPARATION (CH → EU)")
+    logging.info(f"CROSS-REGIONAL LSTM DATASET PREPARATION ({ch_code} → EU)")
     logging.info("=" * 60)
 
     region_groups = region_groups or {}
-
-    # codes already covered by a group
     grouped_codes = {c for codes in region_groups.values() for c in codes}
 
-    # ---- discover individual target codes ----
     df_test_all = res_xreg["df_test"]
     df_test_aug_all = res_xreg["df_test_aug"]
 
@@ -777,10 +759,10 @@ def build_or_load_lstm_all_xreg(
     )
     logging.info(f"Cache directory: {cache_dir}")
 
-    # ---- train (CH) cached once ----
-    key_train = "XREG_CH_TRAIN"
+    # ---- train cached once, keyed by source ----
+    key_train = f"XREG_{ch_code}_TRAIN"  # was hardcoded "XREG_CH_TRAIN"
 
-    logging.info("\n--- CH TRAIN DATASET ---")
+    logging.info(f"\n--- {ch_code} TRAIN DATASET ---")
     logging.info(f"Cache key: {key_train}")
     logging.info(f"Force recompute train: {force_recompute_train}")
 
@@ -792,7 +774,7 @@ def build_or_load_lstm_all_xreg(
     }
 
     logging.info(
-        f"CH train rows: {len(res_train['df_train'])} | "
+        f"{ch_code} train rows: {len(res_train['df_train'])} | "
         f"Aug rows: {len(res_train['df_train_aug'])}"
     )
 
@@ -811,7 +793,7 @@ def build_or_load_lstm_all_xreg(
     )
 
     logging.info(
-        f"CH train dataset size: {len(ds_train)} | "
+        f"{ch_code} train dataset size: {len(ds_train)} | "
         f"Train split: {len(train_idx)} | Val split: {len(val_idx)}"
     )
 
@@ -872,7 +854,7 @@ def build_or_load_lstm_all_xreg(
     only_set = set(only_test_keys) if only_test_keys else None
 
     for sc in target_source_codes:
-        key_test = f"XREG_CH_TO_{sc}"
+        key_test = f"XREG_{ch_code}_TO_{sc}"  # was hardcoded "XREG_CH_TO_{sc}"
 
         if only_set is not None:
             if sc not in only_set and key_test not in only_set:
@@ -894,7 +876,9 @@ def build_or_load_lstm_all_xreg(
         logging.info("\n--- GROUPED TARGET REGION TEST DATASETS ---")
 
     for group_name, codes in region_groups.items():
-        key_test = f"XREG_CH_TO_{group_name}"
+        key_test = (
+            f"XREG_{ch_code}_TO_{group_name}"  # was hardcoded "XREG_CH_TO_{group_name}"
+        )
 
         if only_set is not None:
             if group_name not in only_set and key_test not in only_set:
@@ -908,7 +892,7 @@ def build_or_load_lstm_all_xreg(
         df_test_aug_group = df_test_aug_all.loc[mask_aug].copy()
 
         logging.info(
-            f"Group '{group_name}': pooled {len(df_test_group)} rows " f"from {codes}."
+            f"Group '{group_name}': pooled {len(df_test_group)} rows from {codes}."
         )
 
         outputs[key_test] = _build_test_entry(
