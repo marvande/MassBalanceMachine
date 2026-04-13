@@ -51,6 +51,7 @@ regions/Norway/data/
 *.tox
 
 logs/
+venv/
 
 *.parquet
 *.pt
