@@ -91,8 +91,70 @@ def prepare_monthly_df_xreg_SOURCE_to_EU(
     region_name: str | None = None,
     region_id: int = 11,
     csv_subfolder: str | None = None,
+    region_groups: dict | None = None,
 ):
     source_code = str(source_code).strip().upper()
+
+    _groups = {**(region_groups or {})}
+
+    if source_code in _groups:
+        member_codes = _groups[source_code]
+        group_spec = f"{source_code}=[{'; '.join(member_codes)}]"
+
+        # Infer target as everything else present in the data
+        all_codes = set()
+        for df in dfs.values():
+            if df is not None and "SOURCE_CODE" in df.columns:
+                all_codes.update(df["SOURCE_CODE"].dropna().unique())
+        target_codes = sorted(all_codes - set(member_codes))
+
+        # Use stable, human-readable names instead of the auto-joined label
+        if region_name is None:
+            region_name = f"XREG_{source_code}_TO_EU"
+        if csv_subfolder is None:
+            csv_subfolder = f"CrossRegional/{source_code}_to_Europe/csv"
+
+        # Apply the same cache-fallback logic as the single-code path
+        paths_ = paths.copy()
+        paths_["csv_path"] = os.path.join(
+            cfg.dataPath, path_PMB_WGMS_csv, csv_subfolder
+        )
+        os.makedirs(paths_["csv_path"], exist_ok=True)
+
+        monthly_csv = os.path.join(
+            paths_["csv_path"], f"{region_name}_wgms_dataset_monthly.csv"
+        )
+        monthly_aug_csv = os.path.join(
+            paths_["csv_path"], f"{region_name}_wgms_dataset_monthly_Aug.csv"
+        )
+        run_flag_ = run_flag
+        if not run_flag_ and not (
+            os.path.isfile(monthly_csv) and os.path.isfile(monthly_aug_csv)
+        ):
+            logging.info(
+                f"Cache CSVs not found for {region_name}, recomputing despite run_flag=False."
+            )
+            run_flag_ = True
+
+        res, split_info = prepare_monthly_df_xreg_pairwise(
+            cfg=cfg,
+            dfs=dfs,
+            paths=paths,  # pairwise will build its own paths_ internally,
+            vois_climate=vois_climate,
+            vois_topographical=vois_topographical,
+            source_code=group_spec,
+            target_code=target_codes,
+            run_flag=run_flag_,  # <-- use the corrected flag
+            region_name=region_name,
+            region_id=region_id,
+            csv_subfolder=csv_subfolder,
+        )
+        return res, {
+            "train_glaciers": split_info["train_glaciers"],
+            "test_glaciers": split_info["test_glaciers"],
+        }
+
+    # --- original single-code path (unchanged) ---
     if region_name is None:
         region_name = f"XREG_{source_code}_TO_EU"
     if csv_subfolder is None:
@@ -107,7 +169,6 @@ def prepare_monthly_df_xreg_SOURCE_to_EU(
     paths_["csv_path"] = os.path.join(cfg.dataPath, path_PMB_WGMS_csv, csv_subfolder)
     os.makedirs(paths_["csv_path"], exist_ok=True)
 
-    # Fall back to recomputing if cache CSVs don't exist yet
     monthly_csv = os.path.join(
         paths_["csv_path"], f"{region_name}_wgms_dataset_monthly.csv"
     )

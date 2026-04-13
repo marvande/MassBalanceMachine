@@ -130,15 +130,17 @@ def plot_domain_shift(
 
 def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     """
-    Plot domain shift across regions as two side-by-side horizontal bar charts:
+    Plot domain shift across regions as three side-by-side horizontal bar charts:
       - Subplot 1: MMD² (joint, climate, topo), ordered by joint MMD²
       - Subplot 2: Energy distance (joint, climate, topo), same region order
+      - Subplot 3: Sinkhorn distance (joint, climate, topo), same region order
 
     Parameters
     ----------
     all_shifts : dict
         Keys like "XREG_CH_TO_ISL", values are shift dicts from
-        compute_domain_shift (must contain D_mmd2_* and D_energy_* keys).
+        compute_domain_shift (must contain D_mmd2_*, D_energy_* and
+        D_sinkhorn_* keys).
 
     Returns
     -------
@@ -146,6 +148,7 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     """
     regions, mmd2_joint, mmd2_climate, mmd2_topo = [], [], [], []
     en_joint, en_climate, en_topo = [], [], []
+    sk_joint, sk_climate, sk_topo = [], [], []
 
     for key, shift in all_shifts.items():
         region = key.split("_TO_")[-1]
@@ -156,8 +159,11 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         en_joint.append(shift["D_energy_joint"])
         en_climate.append(shift["D_energy_climate"])
         en_topo.append(shift["D_energy_topo"])
+        sk_joint.append(shift["D_sinkhorn_joint"])
+        sk_climate.append(shift["D_sinkhorn_climate"])
+        sk_topo.append(shift["D_sinkhorn_topo"])
 
-    # --- sort by MMD² joint (most shifted first), apply same order to energy ---
+    # --- sort by MMD² joint (most shifted first), apply same order to all ---
     order = np.argsort(mmd2_joint)[::-1]
     regions = [regions[i] for i in order]
     mmd2_joint = [mmd2_joint[i] for i in order]
@@ -166,6 +172,9 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     en_joint = [en_joint[i] for i in order]
     en_climate = [en_climate[i] for i in order]
     en_topo = [en_topo[i] for i in order]
+    sk_joint = [sk_joint[i] for i in order]
+    sk_climate = [sk_climate[i] for i in order]
+    sk_topo = [sk_topo[i] for i in order]
 
     y = np.arange(len(regions))
     h = 0.25
@@ -178,8 +187,8 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
 
     fig, axes = plt.subplots(
         1,
-        2,
-        figsize=(16, max(4, len(regions) * 0.8)),
+        3,
+        figsize=(24, max(4, len(regions) * 0.8)),
         sharey=True,
     )
 
@@ -188,7 +197,6 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         ax.barh(y, climate, height=h, label="Climate", color=colors["climate"])
         ax.barh(y - h, topo, height=h, label="Topo", color=colors["topo"])
 
-        # value annotations
         x_pad = max(joint + climate + topo) * 0.01
         for i in range(len(regions)):
             ax.text(
@@ -225,6 +233,14 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         en_topo,
         xlabel="Energy distance",
         title="Energy distance",
+    )
+    _draw_bars(
+        axes[2],
+        sk_joint,
+        sk_climate,
+        sk_topo,
+        xlabel="Sinkhorn distance",
+        title="Sinkhorn distance",
     )
 
     fig.suptitle(
