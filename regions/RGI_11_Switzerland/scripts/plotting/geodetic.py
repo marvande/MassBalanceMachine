@@ -17,8 +17,6 @@ from sklearn.impute import SimpleImputer
 from scipy.stats import pearsonr
 import colormaps as cmaps
 
-from sklearn.metrics import r2_score
-
 from regions.RGI_11_Switzerland.scripts.plotting.palettes import get_cmap_hex
 
 

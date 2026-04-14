@@ -1,6 +1,9 @@
 import logging
 import os
 import pandas as pd
+import re
+import logging
+from collections.abc import Iterable
 
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.dataset.data_loader import (
@@ -196,12 +199,6 @@ def prepare_monthly_df_xreg_SOURCE_to_EU(
     )
 
     return res, {"train_glaciers": train_glaciers, "test_glaciers": test_glaciers}
-
-
-import os
-import re
-import logging
-from collections.abc import Iterable
 
 
 def _parse_region_group(code_or_group):
