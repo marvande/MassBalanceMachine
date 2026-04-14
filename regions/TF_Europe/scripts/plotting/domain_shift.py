@@ -1,6 +1,12 @@
 from matplotlib import pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+from cmcrameri import cm
+
+import pandas as pd
+
+from regions.TF_Europe.scripts.config_TF_Europe import *
+from regions.TF_Europe.scripts.plotting.palettes import *
 
 
 def plot_domain_shift(
@@ -131,16 +137,16 @@ def plot_domain_shift(
 def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     """
     Plot domain shift across regions as three side-by-side horizontal bar charts:
-      - Subplot 1: MMD² (joint, climate, topo), ordered by joint MMD²
-      - Subplot 2: Energy distance (joint, climate, topo), same region order
-      - Subplot 3: Sinkhorn distance (joint, climate, topo), same region order
+      - Subplot 1: Sinkhorn distance (joint, climate, topo), ordered by joint Sinkhorn
+      - Subplot 2: MMD² (joint, climate, topo), same region order
+      - Subplot 3: Energy distance (joint, climate, topo), same region order
 
     Parameters
     ----------
     all_shifts : dict
         Keys like "XREG_CH_TO_ISL", values are shift dicts from
-        compute_domain_shift (must contain D_mmd2_*, D_energy_* and
-        D_sinkhorn_* keys).
+        compute_domain_shift (must contain D_sinkhorn_*, D_mmd2_* and
+        D_energy_* keys).
 
     Returns
     -------
@@ -163,8 +169,8 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         sk_climate.append(shift["D_sinkhorn_climate"])
         sk_topo.append(shift["D_sinkhorn_topo"])
 
-    # --- sort by MMD² joint (most shifted first), apply same order to all ---
-    order = np.argsort(mmd2_joint)[::-1]
+    # --- sort by Sinkhorn joint (most shifted first), apply same order to all ---
+    order = np.argsort(sk_joint)[::-1]
     regions = [regions[i] for i in order]
     mmd2_joint = [mmd2_joint[i] for i in order]
     mmd2_climate = [mmd2_climate[i] for i in order]
@@ -220,6 +226,14 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
 
     _draw_bars(
         axes[0],
+        sk_joint,
+        sk_climate,
+        sk_topo,
+        xlabel="Sinkhorn distance",
+        title="Sinkhorn",
+    )
+    _draw_bars(
+        axes[1],
         mmd2_joint,
         mmd2_climate,
         mmd2_topo,
@@ -227,20 +241,12 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         title="MMD²",
     )
     _draw_bars(
-        axes[1],
+        axes[2],
         en_joint,
         en_climate,
         en_topo,
         xlabel="Energy distance",
         title="Energy distance",
-    )
-    _draw_bars(
-        axes[2],
-        sk_joint,
-        sk_climate,
-        sk_topo,
-        xlabel="Sinkhorn distance",
-        title="Sinkhorn distance",
     )
 
     fig.suptitle(
@@ -250,3 +256,219 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     )
     plt.tight_layout()
     return fig
+
+
+def plot_region_shift_vs_performance_single_d(
+    df_metrics: pd.DataFrame,
+    all_shifts: dict,
+    complement_key: str = "",
+    performance_cols: list[str] | None = None,
+    distance_variant: str = "mmd2",
+    exclude_targets: list[str] | None = None,
+    exclude_sources: list[str] | None = None,  # <-- new
+    blur_m: float | None = None,
+    blur_s: float | None = None,
+):
+    from scipy import stats
+
+    exclude_targets = {t.upper() for t in (exclude_targets or [])}
+    exclude_sources = {s.upper() for s in (exclude_sources or [])}  # <-- new
+
+    if performance_cols is None:
+        performance_cols = [
+            c
+            for c in df_metrics.columns
+            if any(kw in c.lower() for kw in ["rmse", "bias"])
+        ]
+        if not performance_cols:
+            raise ValueError(
+                f"No performance columns auto-detected in df_metrics.\n"
+                f"Available columns: {list(df_metrics.columns)}\n"
+                f"Pass performance_cols= explicitly."
+            )
+        print(f"Auto-detected performance columns: {performance_cols}")
+
+    distance_cols = [
+        f"D_{distance_variant}_joint",
+        f"D_{distance_variant}_climate",
+        f"D_{distance_variant}_topo",
+    ]
+
+    xlabel_map = {
+        f"D_{distance_variant}_joint": f"{distance_variant} joint",
+        f"D_{distance_variant}_climate": f"{distance_variant} climate",
+        f"D_{distance_variant}_topo": f"{distance_variant} topo",
+    }
+
+    blur_map = {}
+    if distance_variant == "sinkhorn" and blur_m is not None and blur_s is not None:
+        blur_map = {
+            f"D_sinkhorn_joint": 0.5 * (blur_m + blur_s),
+            f"D_sinkhorn_climate": blur_m,
+            f"D_sinkhorn_topo": blur_s,
+        }
+
+    # --- build flat region DataFrame ---
+    records = []
+    for full_key in df_metrics.index:
+        shift_key = f"{complement_key}{full_key}" if complement_key else full_key
+        if shift_key not in all_shifts:
+            print(f"Warning: '{shift_key}' not in all_shifts, skipping.")
+            continue
+
+        parts = shift_key.split("_TO_")
+        src = parts[0].replace("XREG_", "")
+        tgt = parts[1] if len(parts) > 1 else shift_key
+
+        if tgt.upper() in exclude_targets:
+            continue
+        if src.upper() in exclude_sources:  # <-- new
+            continue
+
+        shift = all_shifts[shift_key]
+        region_label = f"{src}→{tgt}"
+
+        row = {
+            "full_key": full_key,
+            "region": region_label,
+            "src": src,
+            "tgt": tgt,
+        }
+        for pc in performance_cols:
+            row[pc] = df_metrics.loc[full_key, pc]
+        for dc in distance_cols:
+            row[dc] = shift.get(dc, float("nan"))
+        records.append(row)
+
+    if not records:
+        raise ValueError(
+            "No matching regions between df_metrics and all_shifts.\n"
+            f"df_metrics index: {list(df_metrics.index)}\n"
+            f"all_shifts keys:  {list(all_shifts.keys())}"
+        )
+
+    df_region = pd.DataFrame(records)
+    print(f"Plotting {len(df_region)} source→target pairs: {list(df_region['region'])}")
+
+    unique_sources = df_region["src"].unique()
+    src_colors = {
+        s: c
+        for s, c in zip(
+            unique_sources, get_cmap_hex(cm.batlow, max(len(unique_sources), 4))
+        )
+    }
+
+    nrows = len(performance_cols)
+    ncols = 3
+
+    fig, axes = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(4.5 * ncols, 4.2 * nrows),
+        squeeze=False,
+    )
+
+    for r, pc in enumerate(performance_cols):
+        for c, dc in enumerate(distance_cols):
+            ax = axes[r][c]
+
+            x = df_region[dc].values.astype(float)
+            y = df_region[pc].values.astype(float)
+            mask = np.isfinite(x) & np.isfinite(y)
+
+            for _, row in df_region.iterrows():
+                xi = float(row[dc])
+                yi = float(row[pc])
+                if not (np.isfinite(xi) and np.isfinite(yi)):
+                    continue
+                ax.scatter(
+                    xi,
+                    yi,
+                    color=src_colors[row["src"]],
+                    s=140,
+                    zorder=3,
+                    edgecolors="white",
+                    linewidths=0.6,
+                )
+                x_range = x[mask].max() - x[mask].min() if mask.sum() > 1 else 1
+                x_frac = (xi - x[mask].min()) / x_range if x_range > 0 else 0
+                if x_frac > 0.7:
+                    xytext, ha = (-6, 4), "right"
+                else:
+                    xytext, ha = (6, 4), "left"
+
+                ax.annotate(
+                    row["region"],
+                    (xi, yi),
+                    xytext=xytext,
+                    textcoords="offset points",
+                    fontsize=9,
+                    fontweight="bold",
+                    color=src_colors[row["src"]],
+                    ha=ha,
+                )
+
+            n_valid = mask.sum()
+            if n_valid >= 3:
+                rho, pval = stats.spearmanr(x[mask], y[mask])
+
+                if dc in blur_map:
+                    corr_txt = (
+                        f"rho = {rho:.2f}  "
+                        f"blur = {blur_map[dc]:.3f}  "
+                        f"n = {n_valid}"
+                    )
+                else:
+                    corr_txt = f"rho = {rho:.2f}  p = {pval:.2f}  n = {n_valid}"
+
+                slope, intercept, *_ = stats.linregress(x[mask], y[mask])
+                x_line = np.linspace(x[mask].min(), x[mask].max(), 100)
+                y_line = slope * x_line + intercept
+                ax.plot(
+                    x_line,
+                    y_line,
+                    color="black",
+                    linewidth=1.2,
+                    linestyle="--",
+                    alpha=0.3,
+                    zorder=2,
+                )
+            else:
+                corr_txt = f"n = {n_valid} (too few for rho)"
+
+            ax.text(
+                0.04,
+                0.97,
+                corr_txt,
+                transform=ax.transAxes,
+                va="top",
+                ha="left",
+                fontsize=8,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="none", alpha=0.8),
+            )
+
+            ax.set_xlabel(xlabel_map[dc], fontsize=9)
+            ax.set_ylabel(pc, fontsize=9)
+            ax.grid(color="#e0e0e0", linewidth=0.5)
+            ax.spines[["top", "right"]].set_visible(False)
+            ax.set_axisbelow(True)
+
+    legend_handles = [
+        plt.scatter([], [], color=src_colors[s], s=80, label=s) for s in unique_sources
+    ]
+    fig.legend(
+        handles=legend_handles,
+        title="Source region",
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.04),
+        ncols=len(unique_sources),
+        frameon=False,
+    )
+
+    fig.suptitle(
+        f"Region-level domain shift vs transfer performance — {distance_variant}",
+        fontsize=13,
+        y=1.01,
+    )
+    plt.tight_layout()
+    return fig, df_region
