@@ -265,14 +265,19 @@ def plot_region_shift_vs_performance_single_d(
     performance_cols: list[str] | None = None,
     distance_variant: str = "mmd2",
     exclude_targets: list[str] | None = None,
-    exclude_sources: list[str] | None = None,  # <-- new
+    exclude_sources: list[str] | None = None,
     blur_m: float | None = None,
     blur_s: float | None = None,
+    blur_joint: float | None = None,
+    joint_variant: str = "averaged",  # "averaged" or "true"
 ):
     from scipy import stats
 
+    if joint_variant not in {"averaged", "true"}:
+        raise ValueError("joint_variant must be 'averaged' or 'true'.")
+
     exclude_targets = {t.upper() for t in (exclude_targets or [])}
-    exclude_sources = {s.upper() for s in (exclude_sources or [])}  # <-- new
+    exclude_sources = {s.upper() for s in (exclude_sources or [])}
 
     if performance_cols is None:
         performance_cols = [
@@ -288,25 +293,40 @@ def plot_region_shift_vs_performance_single_d(
             )
         print(f"Auto-detected performance columns: {performance_cols}")
 
+    # joint column depends on variant — only sinkhorn has a "true" joint
+    if joint_variant == "true" and distance_variant == "sinkhorn":
+        joint_col = "D_sinkhorn_joint_true"
+        joint_label = "sinkhorn joint (true)"
+    else:
+        if joint_variant == "true":
+            print(
+                f"Warning: joint_variant='true' is only available for sinkhorn, "
+                f"falling back to 'averaged' for {distance_variant}."
+            )
+        joint_col = f"D_{distance_variant}_joint"
+        joint_label = f"{distance_variant} joint (averaged)"
+
     distance_cols = [
-        f"D_{distance_variant}_joint",
+        joint_col,
         f"D_{distance_variant}_climate",
         f"D_{distance_variant}_topo",
     ]
 
     xlabel_map = {
-        f"D_{distance_variant}_joint": f"{distance_variant} joint",
+        joint_col: joint_label,
         f"D_{distance_variant}_climate": f"{distance_variant} climate",
         f"D_{distance_variant}_topo": f"{distance_variant} topo",
     }
 
+    # blur annotations for sinkhorn
     blur_map = {}
-    if distance_variant == "sinkhorn" and blur_m is not None and blur_s is not None:
-        blur_map = {
-            f"D_sinkhorn_joint": 0.5 * (blur_m + blur_s),
-            f"D_sinkhorn_climate": blur_m,
-            f"D_sinkhorn_topo": blur_s,
-        }
+    if distance_variant == "sinkhorn":
+        if blur_m is not None and blur_s is not None:
+            blur_map[f"D_sinkhorn_joint"] = 0.5 * (blur_m + blur_s)
+            blur_map[f"D_sinkhorn_climate"] = blur_m
+            blur_map[f"D_sinkhorn_topo"] = blur_s
+        if blur_joint is not None:
+            blur_map["D_sinkhorn_joint_true"] = blur_joint
 
     # --- build flat region DataFrame ---
     records = []
@@ -322,7 +342,7 @@ def plot_region_shift_vs_performance_single_d(
 
         if tgt.upper() in exclude_targets:
             continue
-        if src.upper() in exclude_sources:  # <-- new
+        if src.upper() in exclude_sources:
             continue
 
         shift = all_shifts[shift_key]
@@ -465,8 +485,9 @@ def plot_region_shift_vs_performance_single_d(
         frameon=False,
     )
 
+    joint_desc = "true joint" if joint_variant == "true" else "averaged joint"
     fig.suptitle(
-        f"Region-level domain shift vs transfer performance — {distance_variant}",
+        f"Region-level domain shift vs transfer performance — {distance_variant} ({joint_desc})",
         fontsize=13,
         y=1.01,
     )
