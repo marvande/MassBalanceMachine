@@ -165,7 +165,7 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         en_joint.append(shift["D_energy_joint"])
         en_climate.append(shift["D_energy_climate"])
         en_topo.append(shift["D_energy_topo"])
-        sk_joint.append(shift["D_sinkhorn_joint"])
+        sk_joint.append(shift["D_sinkhorn_joint_true"])
         sk_climate.append(shift["D_sinkhorn_climate"])
         sk_topo.append(shift["D_sinkhorn_topo"])
 

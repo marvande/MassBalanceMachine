@@ -17,12 +17,12 @@ RGI_REGIONS = {
         "file": "01_rgi60_Alaska.shp",
         "code": "ALA",
     },
-    "02": {
-        "name": "WesternCanadaUS",
-        "folder": "RGI_02_WesternCanadaUS",
-        "file": "02_rgi60_WesternCanadaUS.shp",
-        "code": "CAW",
-    },
+    # "02": {
+    #     "name": "WesternCanadaUS",
+    #     "folder": "RGI_02_WesternCanadaUS",
+    #     "file": "02_rgi60_WesternCanadaUS.shp",
+    #     "code": "CAW",
+    # },
     "06": {
         "name": "Iceland",
         "folder": "RGI_06_Iceland",
