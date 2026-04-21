@@ -269,7 +269,9 @@ def plot_region_shift_vs_performance_single_d(
     blur_m: float | None = None,
     blur_s: float | None = None,
     blur_joint: float | None = None,
-    joint_variant: str = "averaged",  # "averaged" or "true"
+    joint_variant: str = "averaged",
+    distance_cols_override: list[str] | None = None,  # e.g. ["D_sinkhorn_joint_true"]
+    ax_list: list | None = None,  # pass existing axes to skip fig creation
 ):
     from scipy import stats
 
@@ -293,38 +295,43 @@ def plot_region_shift_vs_performance_single_d(
             )
         print(f"Auto-detected performance columns: {performance_cols}")
 
-    # joint column depends on variant — only sinkhorn has a "true" joint
     if joint_variant == "true" and distance_variant == "sinkhorn":
         joint_col = "D_sinkhorn_joint_true"
         joint_label = "sinkhorn joint (true)"
     else:
         if joint_variant == "true":
             print(
-                f"Warning: joint_variant='true' is only available for sinkhorn, "
+                f"Warning: joint_variant='true' only available for sinkhorn, "
                 f"falling back to 'averaged' for {distance_variant}."
             )
         joint_col = f"D_{distance_variant}_joint"
         joint_label = f"{distance_variant} joint (averaged)"
 
-    distance_cols = [
+    all_distance_cols = [
         joint_col,
         f"D_{distance_variant}_climate",
         f"D_{distance_variant}_topo",
     ]
-
-    xlabel_map = {
+    all_xlabel_map = {
         joint_col: joint_label,
         f"D_{distance_variant}_climate": f"{distance_variant} climate",
         f"D_{distance_variant}_topo": f"{distance_variant} topo",
     }
 
-    # blur annotations for sinkhorn
+    # restrict to requested distance cols if provided
+    distance_cols = (
+        distance_cols_override
+        if distance_cols_override is not None
+        else all_distance_cols
+    )
+    xlabel_map = {k: v for k, v in all_xlabel_map.items() if k in distance_cols}
+
     blur_map = {}
     if distance_variant == "sinkhorn":
         if blur_m is not None and blur_s is not None:
-            blur_map[f"D_sinkhorn_joint"] = 0.5 * (blur_m + blur_s)
-            blur_map[f"D_sinkhorn_climate"] = blur_m
-            blur_map[f"D_sinkhorn_topo"] = blur_s
+            blur_map["D_sinkhorn_joint"] = 0.5 * (blur_m + blur_s)
+            blur_map["D_sinkhorn_climate"] = blur_m
+            blur_map["D_sinkhorn_topo"] = blur_s
         if blur_joint is not None:
             blur_map["D_sinkhorn_joint_true"] = blur_joint
 
@@ -346,17 +353,15 @@ def plot_region_shift_vs_performance_single_d(
             continue
 
         shift = all_shifts[shift_key]
-        region_label = f"{src}→{tgt}"
-
         row = {
             "full_key": full_key,
-            "region": region_label,
+            "region": f"{src}→{tgt}",
             "src": src,
             "tgt": tgt,
         }
         for pc in performance_cols:
             row[pc] = df_metrics.loc[full_key, pc]
-        for dc in distance_cols:
+        for dc in all_distance_cols:  # always fetch all so override works
             row[dc] = shift.get(dc, float("nan"))
         records.append(row)
 
@@ -379,14 +384,15 @@ def plot_region_shift_vs_performance_single_d(
     }
 
     nrows = len(performance_cols)
-    ncols = 3
+    ncols = len(distance_cols)
 
-    fig, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(4.5 * ncols, 4.2 * nrows),
-        squeeze=False,
-    )
+    if ax_list is not None:
+        axes = np.array(ax_list).reshape(nrows, ncols)
+        fig = axes.flat[0].get_figure()
+    else:
+        fig, axes = plt.subplots(
+            nrows, ncols, figsize=(4.5 * ncols, 4.2 * nrows), squeeze=False, sharey=True
+        )
 
     for r, pc in enumerate(performance_cols):
         for c, dc in enumerate(distance_cols):
@@ -412,11 +418,7 @@ def plot_region_shift_vs_performance_single_d(
                 )
                 x_range = x[mask].max() - x[mask].min() if mask.sum() > 1 else 1
                 x_frac = (xi - x[mask].min()) / x_range if x_range > 0 else 0
-                if x_frac > 0.7:
-                    xytext, ha = (-6, 4), "right"
-                else:
-                    xytext, ha = (6, 4), "left"
-
+                xytext, ha = ((-6, 4), "right") if x_frac > 0.7 else ((6, 4), "left")
                 ax.annotate(
                     row["region"],
                     (xi, yi),
@@ -431,22 +433,16 @@ def plot_region_shift_vs_performance_single_d(
             n_valid = mask.sum()
             if n_valid >= 3:
                 rho, pval = stats.spearmanr(x[mask], y[mask])
-
-                if dc in blur_map:
-                    corr_txt = (
-                        f"rho = {rho:.2f}  "
-                        f"blur = {blur_map[dc]:.3f}  "
-                        f"n = {n_valid}"
-                    )
-                else:
-                    corr_txt = f"rho = {rho:.2f}  p = {pval:.2f}  n = {n_valid}"
-
+                corr_txt = (
+                    f"rho = {rho:.2f}  blur = {blur_map[dc]:.3f}  n = {n_valid}"
+                    if dc in blur_map
+                    else f"rho = {rho:.2f}  p = {pval:.2f}  n = {n_valid}"
+                )
                 slope, intercept, *_ = stats.linregress(x[mask], y[mask])
                 x_line = np.linspace(x[mask].min(), x[mask].max(), 100)
-                y_line = slope * x_line + intercept
                 ax.plot(
                     x_line,
-                    y_line,
+                    slope * x_line + intercept,
                     color="black",
                     linewidth=1.2,
                     linestyle="--",
@@ -466,8 +462,7 @@ def plot_region_shift_vs_performance_single_d(
                 fontsize=8,
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="none", alpha=0.8),
             )
-
-            ax.set_xlabel(xlabel_map[dc], fontsize=9)
+            ax.set_xlabel(xlabel_map.get(dc, dc), fontsize=9)
             ax.set_ylabel(pc, fontsize=9)
             ax.grid(color="#e0e0e0", linewidth=0.5)
             ax.spines[["top", "right"]].set_visible(False)
