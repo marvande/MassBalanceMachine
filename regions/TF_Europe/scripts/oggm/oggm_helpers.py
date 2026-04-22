@@ -100,6 +100,7 @@ def initialize_oggm_glacier_directories(
             reset=True,
             force=True,
         )
+        rgi_ids_list = rgidf["RGIId"].tolist()
     else:
         # Initialize glacier directories from preprocessed data
         gdirs = workflow.init_glacier_directories(

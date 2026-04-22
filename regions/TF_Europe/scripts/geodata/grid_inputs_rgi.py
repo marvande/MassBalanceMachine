@@ -152,10 +152,9 @@ def process_monthly_grids_rgi(
             vois_climate=vois_climate,
             vois_topographical=vois_topo,
         )
-
-        dataset_grid_topo.data.to_parquet(
-            out_path, engine="pyarrow", compression="snappy"
-        )
+        # remove points that fall outside of glacier mask
+        df_grid = dataset_grid_topo.data.dropna(subset=vois_topo)
+        df_grid.to_parquet(out_path, engine="pyarrow", compression="snappy")
         return f"OK {rgi_id} {year} -> {out_path}"
 
     except Exception as e:
