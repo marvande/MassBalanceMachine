@@ -8,6 +8,8 @@ import pandas as pd
 from regions.TF_Europe.scripts.config_TF_Europe import *
 from regions.TF_Europe.scripts.plotting.palettes import *
 
+from regions.TF_Europe.scripts.plotting.style import *
+
 
 def plot_domain_shift(
     shift: dict,
@@ -135,23 +137,6 @@ def plot_domain_shift(
 
 
 def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
-    """
-    Plot domain shift across regions as three side-by-side horizontal bar charts:
-      - Subplot 1: Sinkhorn distance (joint, climate, topo), ordered by joint Sinkhorn
-      - Subplot 2: MMD² (joint, climate, topo), same region order
-      - Subplot 3: Energy distance (joint, climate, topo), same region order
-
-    Parameters
-    ----------
-    all_shifts : dict
-        Keys like "XREG_CH_TO_ISL", values are shift dicts from
-        compute_domain_shift (must contain D_sinkhorn_*, D_mmd2_* and
-        D_energy_* keys).
-
-    Returns
-    -------
-    matplotlib Figure
-    """
     regions, mmd2_joint, mmd2_climate, mmd2_topo = [], [], [], []
     en_joint, en_climate, en_topo = [], [], []
     sk_joint, sk_climate, sk_topo = [], [], []
@@ -169,7 +154,6 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         sk_climate.append(shift["D_sinkhorn_climate"])
         sk_topo.append(shift["D_sinkhorn_topo"])
 
-    # --- sort by Sinkhorn joint (most shifted first), apply same order to all ---
     order = np.argsort(sk_joint)[::-1]
     regions = [regions[i] for i in order]
     mmd2_joint = [mmd2_joint[i] for i in order]
@@ -186,15 +170,16 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
     h = 0.25
 
     colors = {
-        "joint": "#3d3d3a",
-        "climate": "#D85A30",
-        "topo": "#534AB7",
+        "joint": NATURE_PALETTE["black"],
+        "climate": NATURE_PALETTE["reddish_purple"],
+        "topo": NATURE_PALETTE["blue"],
     }
 
+    n_rows = max(4, len(regions))
     fig, axes = plt.subplots(
         1,
         3,
-        figsize=(24, max(4, len(regions) * 0.8)),
+        figsize=nature_figsize(cols=2, height_mm=n_rows * 12),
         sharey=True,
     )
 
@@ -204,25 +189,24 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         ax.barh(y - h, topo, height=h, label="Topo", color=colors["topo"])
 
         x_pad = max(joint + climate + topo) * 0.01
+        fs = NATURE_SPECS["font_min_pt"]
         for i in range(len(regions)):
             ax.text(
-                joint[i] + x_pad, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=8
+                joint[i] + x_pad, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=fs
             )
             ax.text(
-                climate[i] + x_pad, y[i], f"{climate[i]:.3f}", va="center", fontsize=8
+                climate[i] + x_pad, y[i], f"{climate[i]:.3f}", va="center", fontsize=fs
             )
             ax.text(
-                topo[i] + x_pad, y[i] - h, f"{topo[i]:.3f}", va="center", fontsize=8
+                topo[i] + x_pad, y[i] - h, f"{topo[i]:.3f}", va="center", fontsize=fs
             )
 
         ax.set_yticks(y)
         ax.set_yticklabels(regions)
         ax.set_xlabel(xlabel)
         ax.set_title(title)
-        ax.legend(frameon=False)
-        ax.grid(axis="x", color="#e0e0e0", linewidth=0.6)
-        ax.set_axisbelow(True)
-        ax.spines[["top", "right"]].set_visible(False)
+        ax.legend(frameon=False, fontsize=NATURE_SPECS["font_min_pt"])
+        apply_nature_style(ax)
 
     _draw_bars(
         axes[0],
@@ -251,7 +235,7 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
 
     fig.suptitle(
         f"Domain shift: {src_region} → other regions",
-        fontsize=13,
+        fontsize=NATURE_SPECS["font_max_pt"] + 1,
         y=1.01,
     )
     plt.tight_layout()
@@ -376,12 +360,12 @@ def plot_region_shift_vs_performance_single_d(
     print(f"Plotting {len(df_region)} source→target pairs: {list(df_region['region'])}")
 
     unique_sources = df_region["src"].unique()
-    src_colors = {
-        s: c
-        for s, c in zip(
-            unique_sources, get_cmap_hex(cm.batlow, max(len(unique_sources), 4))
-        )
-    }
+    # src_colors = {
+    #     s: c
+    #     for s, c in zip(unique_sources,
+    #                     get_cmap_hex(cm.batlow, max(len(unique_sources), 4)))
+    # }
+    src_colors = {s: c for s, c in zip(unique_sources, NATURE_COLORS)}
 
     nrows = len(performance_cols)
     ncols = len(distance_cols)
@@ -391,7 +375,11 @@ def plot_region_shift_vs_performance_single_d(
         fig = axes.flat[0].get_figure()
     else:
         fig, axes = plt.subplots(
-            nrows, ncols, figsize=(4.5 * ncols, 4.2 * nrows), squeeze=False, sharey=True
+            nrows,
+            ncols,
+            figsize=nature_figsize(cols=2, height_mm=80 * nrows),
+            squeeze=False,
+            sharey="row",
         )
 
     for r, pc in enumerate(performance_cols):
@@ -411,10 +399,10 @@ def plot_region_shift_vs_performance_single_d(
                     xi,
                     yi,
                     color=src_colors[row["src"]],
-                    s=140,
+                    s=80,  # slightly smaller, more Nature-appropriate
                     zorder=3,
                     edgecolors="white",
-                    linewidths=0.6,
+                    linewidths=0.4,  # was 0.6
                 )
                 x_range = x[mask].max() - x[mask].min() if mask.sum() > 1 else 1
                 x_frac = (xi - x[mask].min()) / x_range if x_range > 0 else 0
@@ -424,7 +412,7 @@ def plot_region_shift_vs_performance_single_d(
                     (xi, yi),
                     xytext=xytext,
                     textcoords="offset points",
-                    fontsize=9,
+                    fontsize=NATURE_SPECS["font_min_pt"],  # was 9
                     fontweight="bold",
                     color=src_colors[row["src"]],
                     ha=ha,
@@ -459,14 +447,34 @@ def plot_region_shift_vs_performance_single_d(
                 transform=ax.transAxes,
                 va="top",
                 ha="left",
-                fontsize=8,
+                fontsize=NATURE_SPECS["font_min_pt"],  # was 8
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="none", alpha=0.8),
             )
-            ax.set_xlabel(xlabel_map.get(dc, dc), fontsize=9)
-            ax.set_ylabel(pc, fontsize=9)
-            ax.grid(color="#e0e0e0", linewidth=0.5)
-            ax.spines[["top", "right"]].set_visible(False)
-            ax.set_axisbelow(True)
+
+            # ax.grid(color="#e0e0e0", linewidth=0.5)
+            # ax.spines[["top", "right"]].set_visible(False)
+            # ax.set_axisbelow(True)
+            apply_nature_style(ax, fontsize=NATURE_SPECS["font_min_pt"], box=True)
+            XLABEL_MAP = {
+                "sinkhorn joint (true)": "Sinkhorn Distance (Joint)",
+                "sinkhorn climate": "Sinkhorn Distance (Climate)",
+                "sinkhorn topo": "Sinkhorn Distance (Topo)",
+                "mmd2 joint (averaged)": "MMD² Distance (Joint)",
+                "mmd2 climate": "MMD² Distance (Climate)",
+                "mmd2 topo": "MMD² Distance (Topo)",
+                "energy joint (averaged)": "Energy Distance (Joint)",
+                "energy climate": "Energy Distance (Climate)",
+                "energy topo": "Energy Distance (Topo)",
+            }
+            ax.set_xlabel(
+                XLABEL_MAP.get(xlabel_map.get(dc, dc), xlabel_map.get(dc, dc)),
+                fontsize=NATURE_SPECS["font_min_pt"],
+            )
+            YLABEL_MAP = {
+                "RMSE_annual": "Annual RMSE (m w.e.)",
+                "RMSE_winter": "Winter RMSE (m w.e.)",
+            }
+            ax.set_ylabel(YLABEL_MAP.get(pc, pc), fontsize=NATURE_SPECS["font_min_pt"])
 
     legend_handles = [
         plt.scatter([], [], color=src_colors[s], s=80, label=s) for s in unique_sources
@@ -482,9 +490,9 @@ def plot_region_shift_vs_performance_single_d(
 
     joint_desc = "true joint" if joint_variant == "true" else "averaged joint"
     fig.suptitle(
-        f"Region-level domain shift vs transfer performance — {distance_variant} ({joint_desc})",
-        fontsize=13,
+        f"Region-level domain shift vs transfer performance",
+        fontsize=NATURE_SPECS["font_max_pt"] + 1,  # was 13
         y=1.01,
     )
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.08, 1, 1])
     return fig, df_region

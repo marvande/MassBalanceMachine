@@ -240,6 +240,11 @@ def evaluate_one_model_TL(
     if domain_vocab is not None:
         test_df_preds["domain_id"] = test_df_preds["SOURCE_CODE"].map(domain_vocab)
 
+    # print(f"test_df_preds shape: {test_df_preds.shape}")
+    # print(f"NaNs in target: {test_df_preds['target'].isna().sum()}")
+    # print(f"NaNs in pred: {test_df_preds['pred'].isna().sum()}")
+    # print(f"Seasons present: {test_df_preds['season'].unique() if 'season' in test_df_preds.columns else 'no season col'}")
+
     # seasonal scores
     scores_annual, scores_winter = compute_seasonal_scores(
         test_df_preds, target_col="target", pred_col="pred"
