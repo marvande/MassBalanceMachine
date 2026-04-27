@@ -257,7 +257,6 @@ def compute_domain_shift(
     id_col: str = "ID",
     glacier_col: str = "GLACIER",
     seed: int = 0,
-    compute_marginals: bool = False,
     scaler_m: StandardScaler | None = None,
     scaler_s: StandardScaler | None = None,
     blur_m: float | None = None,
@@ -369,9 +368,7 @@ def compute_domain_shift(
         # --- averaged joint (50/50 mean of climate and topo) ---
         "D_mmd2_joint": 0.5 * D_mmd2_climate + 0.5 * D_mmd2_topo,
         "D_energy_joint": 0.5 * D_energy_climate + 0.5 * D_energy_topo,
-        "D_sinkhorn_joint": 0.5 * D_sinkhorn_climate + 0.5 * D_sinkhorn_topo,
-        # --- true joint Sinkhorn ---
-        "D_sinkhorn_joint_true": D_sinkhorn_joint_true,
+        "D_sinkhorn_joint": D_sinkhorn_joint_true,
         # --- climate ---
         "D_mmd2_climate": D_mmd2_climate,
         "D_energy_climate": D_energy_climate,
@@ -381,59 +378,6 @@ def compute_domain_shift(
         "D_energy_topo": D_energy_topo,
         "D_sinkhorn_topo": D_sinkhorn_topo,
     }
-
-    if compute_marginals:
-        for j, col in enumerate(monthly_cols):
-            blur_col = _estimate_blur(
-                Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 200 + j
-            )
-            out[f"D_mmd2_{col}"] = _clip_mmd2(
-                mmd_squared_unbiased(
-                    Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 10 + j
-                )
-            )
-            out[f"D_energy_{col}"] = float(
-                energy_distance(
-                    Xm_src_z[:, j : j + 1], Xm_tgt_z[:, j : j + 1], seed=seed + 100 + j
-                )
-            )
-            out[f"D_sinkhorn_{col}"] = _sinkhorn_distance(
-                Xm_src_z[:, j : j + 1],
-                Xm_tgt_z[:, j : j + 1],
-                blur=blur_col,
-                device=device,
-                seed=seed + 300 + j,
-            )
-
-        offset = len(monthly_cols)
-        for j, col in enumerate(static_cols):
-            blur_col = _estimate_blur(
-                Xs_src_z[:, j : j + 1],
-                Xs_tgt_z[:, j : j + 1],
-                seed=seed + 200 + offset + j,
-            )
-            out[f"D_mmd2_{col}"] = _clip_mmd2(
-                mmd_squared_unbiased(
-                    Xs_src_z[:, j : j + 1],
-                    Xs_tgt_z[:, j : j + 1],
-                    seed=seed + 10 + offset + j,
-                )
-            )
-            out[f"D_energy_{col}"] = float(
-                energy_distance(
-                    Xs_src_z[:, j : j + 1],
-                    Xs_tgt_z[:, j : j + 1],
-                    seed=seed + 100 + offset + j,
-                )
-            )
-            out[f"D_sinkhorn_{col}"] = _sinkhorn_distance(
-                Xs_src_z[:, j : j + 1],
-                Xs_tgt_z[:, j : j + 1],
-                blur=blur_col,
-                device=device,
-                seed=seed + 300 + offset + j,
-            )
-
     return out
 
 
@@ -687,3 +631,66 @@ def build_global_scalers_multi_source(
     scaler_s = StandardScaler().fit(_stake_topo(df_all))
 
     return scaler_m, scaler_s
+
+
+def build_global_scalers_from_dfs(
+    dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
+    monthly_cols: list[str],
+    static_cols: list[str],
+) -> tuple[StandardScaler, StandardScaler, StandardScaler]:
+    """
+    Build global StandardScalers fitted on a collection of dataframes.
+    Accepts either a list or a dict of dataframes (values only are used).
+
+    Fits:
+      - scaler_m: on monthly climate columns
+      - scaler_s: on static/topographic columns
+      - scaler_all: on all columns combined
+    """
+    if isinstance(dfs, dict):
+        dfs = list(dfs.values())
+
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    scaler_m = StandardScaler().fit(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    scaler_s = StandardScaler().fit(df_all[static_cols].to_numpy(dtype=np.float64))
+    scaler_all = StandardScaler().fit(
+        df_all[monthly_cols + static_cols].to_numpy(dtype=np.float64)
+    )
+
+    return scaler_m, scaler_s, scaler_all
+
+
+def estimate_global_bandwidths_from_dfs(
+    dfs: list[pd.DataFrame] | dict[str, pd.DataFrame],
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m: StandardScaler,
+    scaler_s: StandardScaler,
+    blur_quantile_multiplier: float = 0.1,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """
+    Estimate fixed blur/bandwidth from the pooled distribution of all dfs.
+    Simple version for grid data — no ID deduplication or topo aggregation.
+    """
+    if isinstance(dfs, dict):
+        dfs = list(dfs.values())
+
+    df_all = pd.concat(dfs, ignore_index=True)
+
+    Xm = scaler_m.transform(df_all[monthly_cols].to_numpy(dtype=np.float64))
+    Xs = scaler_s.transform(df_all[static_cols].to_numpy(dtype=np.float64))
+    Xjoint = np.hstack([Xm, Xs])
+
+    blur_m = _estimate_blur(
+        Xm, Xm, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed
+    )
+    blur_s = _estimate_blur(
+        Xs, Xs, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 1
+    )
+    blur_joint = _estimate_blur(
+        Xjoint, Xjoint, blur_quantile_multiplier=blur_quantile_multiplier, seed=seed + 2
+    )
+
+    return blur_m, blur_s, blur_joint
