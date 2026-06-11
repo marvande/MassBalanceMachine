@@ -1,4 +1,8 @@
 from pathlib import Path
+import os
+import massbalancemachine as mbm
+
+cfg = mbm.EuropeTFConfig()
 
 # <------------------ PATHS ------------------>
 path_cache = Path("cache/TF_Europe")  # Cache directory for intermediate files
@@ -6,6 +10,87 @@ path_ERA5_raw = Path("ERA5Land/raw/")  # ERA5-Land
 path_OGGM = Path("OGGM")  # OGGM working directory (relative to cfg.dataPath)
 path_PMB_WGMS_csv = Path("WGMS")
 path_PMB_GLACIOCLIM_csv = "GLACIOCLIM/point/csv/"
+
+paths_multi = {
+    "EU_US_CANADA": {
+        "era5_climate_data": os.path.join(
+            cfg.dataPath, path_ERA5_raw, "era5_monthly_averaged_data_EU_US_CANADA.nc"
+        ),
+        "geopotential_data": os.path.join(
+            cfg.dataPath, path_ERA5_raw, "era5_geopotential_pressure_EU_US_CANADA.nc"
+        ),
+    },
+    "HMA": {
+        "era5_climate_data": os.path.join(
+            cfg.dataPath,
+            path_ERA5_raw,
+            "era5_monthly_averaged_data_HIGH_MOUNTAIN_ASIA.nc",
+        ),
+        "geopotential_data": os.path.join(
+            cfg.dataPath,
+            path_ERA5_raw,
+            "era5_geopotential_pressure_HIGH_MOUNTAIN_ASIA.nc",
+        ),
+    },
+}
+
+MONTHLY_COLS = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+    "ELEVATION_DIFFERENCE",
+]
+
+VOIS_CLIMATE = [
+    "t2m",
+    "tp",
+    "slhf",
+    "sshf",
+    "ssrd",
+    "fal",
+    "str",
+]
+
+STATIC_COLS = ["aspect", "slope", "svf"]
+
+FEATURE_COLUMNS = MONTHLY_COLS + STATIC_COLS
+
+# For plots:
+NATURE_PALETTE = {
+    "black": "#000000",
+    "orange": "#e69f00",
+    "sky_blue": "#56b4e9",
+    "bluish_green": "#009e73",
+    "yellow": "#f0e442",
+    "blue": "#0072b2",
+    "vermillion": "#d55e00",
+    "reddish_purple": "#cc79a7",
+}
+COLORS = {
+    "CH": NATURE_PALETTE["blue"],
+    "NOR": NATURE_PALETTE["vermillion"],
+    "ISL": NATURE_PALETTE["reddish_purple"],
+    "FR": NATURE_PALETTE["orange"],
+    "foundation_zs": "#aaaaaa",
+    "foundation_ft": "black",
+}
+
+REGION_LABELS = {
+    "IT": "Italy",
+    "SJM": "Svalbard",
+    "CA_12": "Central Asia 1+2",
+    "CA_3": "Central Asia 3",
+    "CA_4": "Central Asia 4",
+    "ALA_2": "Alaska 2",
+    "ALA_4": "Alaska 4",
+    "ALA_6": "Alaska 6",
+    "CENTRALASIA": "Central Asia",
+    "ALA": "Alaska (ALA)",
+}
 
 # Base folder for RGI v6 relative to cfg.dataPath (or whatever root you use)
 RGI_V6_ROOT = Path("RGI_v6")
@@ -75,6 +160,35 @@ RGI_REGIONS = {
         "era5_source": "HMA",
     },
 }
+
+AT_GLACIERS = [
+    "GOLDBERG K.",
+    "HALLSTAETTER G.",
+    "HINTEREIS F.",
+    "JAMTAL F.",
+    "KESSELWAND F.",
+    "KLEINFLEISS K.",
+    "OE. WURTEN K.",
+    "VENEDIGER K.",
+    "VERNAGT F.",
+    "ZETTALUNITZ/MULLWITZ K.",
+]
+IT_GLACIERS = [
+    "CAMPO SETT.",
+    "CARESER",
+    "CARESER CENTRALE",
+    "CARESER OCCIDENTALE",
+    "CARESER ORIENTALE",
+    "CIARDONEY",
+    "FONTANA BIANCA / WEISSBRUNNF.",
+    "GRAND ETRET",
+    "LUNGA (VEDRETTA) / LANGENF.",
+    "LUPO",
+    "MALAVALLE (VEDR. DI) / UEBELTALF.",
+    "PENDENTE (VEDR.) / HANGENDERF.",
+    "RIES OCC. (VEDR. DI) / RIESERF. WESTL.",
+    "SURETTA MERIDIONALE",
+]
 
 # Derived automatically from RGI_REGIONS — do not edit manually
 REGION_CODE_TO_ERA5 = {}
@@ -179,17 +293,17 @@ vois_units = {
     "POINT_BALANCE": "m w.e.",
 }
 
-VOIS_CLIMATE = [
-    "t2m",
-    "tp",
-    "slhf",
-    "sshf",
-    "ssrd",
-    "fal",
-    "str",
-]
+# VOIS_CLIMATE = [
+#     "t2m",
+#     "tp",
+#     "slhf",
+#     "sshf",
+#     "ssrd",
+#     "fal",
+#     "str",
+# ]
 
-VOIS_TOPOGRAPHICAL = ["aspect", "slope", "svf"]
+# VOIS_TOPOGRAPHICAL = ["aspect", "slope", "svf"]
 
 FR_gl_name = {
     "FR4N01235A08 dArgentiere": "Argentiere",

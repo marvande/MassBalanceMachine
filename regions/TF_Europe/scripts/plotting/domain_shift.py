@@ -527,7 +527,7 @@ def format_axis_ticks(ax, label_size=8):
         pass
 
 
-def plot_kde_pair(glaciers_to_plot, selected_cols, save_prefix):
+def plot_kde_pair(glaciers_to_plot, selected_cols):
     """KDE panels for a pair of glaciers."""
     ncols = 3
     nrows = int(np.ceil(len(selected_cols) / ncols))
@@ -601,6 +601,4 @@ def plot_kde_pair(glaciers_to_plot, selected_cols, save_prefix):
         )
 
     plt.tight_layout(h_pad=3.0)
-    plt.savefig(f"figures/paperTF/{save_prefix}_kde.pdf", bbox_inches="tight")
-    plt.savefig(f"figures/paperTF/{save_prefix}_kde.png", dpi=300, bbox_inches="tight")
     plt.show()

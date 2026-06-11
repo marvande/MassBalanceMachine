@@ -3,6 +3,7 @@ import pandas as pd
 import geopandas as gpd
 
 from regions.TF_Europe.scripts.dataset import load_stakes_for_rgi_region
+from regions.TF_Europe.scripts.config_TF_Europe import *
 
 
 def pick_glaciers_by_row_fraction(
@@ -339,3 +340,137 @@ def build_region_glacier_info_for_splits(
             )
 
     return data_region, glacier_outline_rgi, glacier_info_by_split
+
+
+def split_monthly_cache_by_glaciers(
+    monthly_cache: dict,
+    parent_key: str,
+    subregions: dict,
+    drop_parent: bool = False,
+) -> dict:
+    """
+    Split a parent entry in monthly_cache into subregion entries.
+
+    Parameters
+    ----------
+    monthly_cache : dict
+        The existing monthly cache to update in-place.
+    parent_key : str
+        Key of the parent entry to split (e.g. 'IT_AT', 'CENTRALASIA', 'ALA').
+    subregions : dict
+        Mapping of new_key -> filter, where filter is either:
+          - a list of glacier names (GLACIER column filter), or
+          - a dict {'o2region_col': col, 'values': list} for O2Region filtering.
+        Example for IT/AT:
+            {'IT': ['CARESER', ...], 'AT': ['VERNAGT F.', ...]}
+        Example for CA subregions (after O2Region is already mapped):
+            {'CA_12': {'o2region_col': 'O2Region', 'values': ['1', '2']},
+             'CA_3':  {'o2region_col': 'O2Region', 'values': ['3']}}
+    drop_parent : bool
+        If True, remove the parent entry from monthly_cache after splitting.
+
+    Returns
+    -------
+    dict : updated monthly_cache
+    """
+    parent = monthly_cache[parent_key]
+    dm = parent["data_monthly"]
+    dm_aug = parent["data_monthly_aug"]
+
+    for key, filter_spec in subregions.items():
+        if isinstance(filter_spec, list):
+            mask = dm["GLACIER"].isin(filter_spec)
+            mask_aug = dm_aug["GLACIER"].isin(filter_spec)
+        else:
+            col = filter_spec["o2region_col"]
+            values = filter_spec["values"]
+            mask = dm[col].isin(values)
+            mask_aug = dm_aug[col].isin(values)
+
+        data = dm[mask].copy()
+        data_aug = dm_aug[mask_aug].copy()
+        data["SOURCE_CODE"] = key
+        data_aug["SOURCE_CODE"] = key
+
+        monthly_cache[key] = {
+            "data_monthly": data,
+            "data_monthly_aug": data_aug,
+            "months_head_pad": parent["months_head_pad"],
+            "months_tail_pad": parent["months_tail_pad"],
+        }
+        print(f"  {key}: {len(data)} measurements")
+
+    if drop_parent:
+        del monthly_cache[parent_key]
+
+    return monthly_cache
+
+
+def add_o2region_to_dfs(
+    dfs: dict,
+    rgi_id: str,
+    cfg,
+    deduplicate_glaciers: bool = False,
+) -> tuple[dict, dict]:
+    """
+    Load O2Region from RGI shapefile and map onto dfs[rgi_id].
+    Optionally deduplicate glaciers that span multiple RGIIds.
+
+    Parameters
+    ----------
+    dfs : dict
+        Stake dataframes keyed by RGI region id.
+    rgi_id : str
+        RGI region id to process (e.g. '01', '13').
+    cfg : config object
+        MBM config with dataPath.
+    deduplicate_glaciers : bool
+        If True, rename glaciers that map to multiple RGIIds
+        by appending the RGIId suffix (e.g. EASTFORK_01_00022).
+
+    Returns
+    -------
+    dfs : updated dict
+    glacier_dict : dict mapping glacier name -> {'O2Region': ..., 'RGIId': ...}
+    """
+    if deduplicate_glaciers:
+        deduped = dfs[rgi_id][["GLACIER", "RGIId"]].drop_duplicates().copy()
+        multi_mask = deduped.groupby("GLACIER")["RGIId"].transform("count") > 1
+        deduped["GLACIER_NEW"] = deduped["GLACIER"]
+        deduped.loc[multi_mask, "GLACIER_NEW"] = (
+            deduped.loc[multi_mask, "GLACIER"]
+            + "_"
+            + deduped.loc[multi_mask, "RGIId"].str.extract(r"\.(\d+)$")[0]
+        )
+        dfs[rgi_id] = dfs[rgi_id].merge(
+            deduped[["GLACIER", "RGIId", "GLACIER_NEW"]],
+            on=["GLACIER", "RGIId"],
+            how="left",
+        )
+        dfs[rgi_id]["GLACIER"] = dfs[rgi_id]["GLACIER_NEW"].fillna(
+            dfs[rgi_id]["GLACIER"]
+        )
+        dfs[rgi_id] = dfs[rgi_id].drop(columns="GLACIER_NEW")
+
+    rgi_gdf = gpd.read_file(
+        cfg.dataPath
+        / RGI_V6_ROOT
+        / RGI_REGIONS[rgi_id]["folder"]
+        / RGI_REGIONS[rgi_id]["file"]
+    )[["RGIId", "O2Region"]]
+
+    glacier_dict = (
+        dfs[rgi_id][["GLACIER", "RGIId"]]
+        .drop_duplicates()
+        .merge(rgi_gdf, on="RGIId", how="left")
+        .set_index("GLACIER")
+        .to_dict("index")
+    )
+
+    dfs[rgi_id]["O2Region"] = dfs[rgi_id]["GLACIER"].map(
+        {k: v["O2Region"] for k, v in glacier_dict.items()}
+    )
+
+    print(dfs[rgi_id].groupby("O2Region").size().rename("n_measurements"))
+
+    return dfs, glacier_dict
