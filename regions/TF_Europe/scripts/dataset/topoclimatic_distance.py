@@ -1051,3 +1051,264 @@ def rank_glaciers_by_distance_to_target(
     )
 
     return df_ranked
+
+
+def split_pool_holdout_by_id(
+    df_region: pd.DataFrame,
+    id_col: str = "ID",
+    train_frac: float = 0.8,
+    seed: int = 0,
+) -> dict:
+    """
+    Random split at the individual stake (ID) level.
+    Fallback for regions with too few glaciers (e.g. SJM with 3 glaciers).
+    """
+    all_ids = sorted(df_region[id_col].unique())
+    n_total_meas = len(df_region)
+    target_train = int(np.round(train_frac * n_total_meas))
+
+    rng = np.random.default_rng(seed)
+    shuffled = rng.permutation(all_ids)
+
+    train_ids, test_ids = [], []
+    train_meas_count = 0
+
+    for id_ in shuffled:
+        id_meas = (df_region[id_col] == id_).sum()
+        if train_meas_count < target_train:
+            train_ids.append(id_)
+            train_meas_count += id_meas
+        else:
+            test_ids.append(id_)
+
+    actual_frac = train_meas_count / n_total_meas
+
+    print(f"  Total measurements   : {n_total_meas}")
+    print(f"  Target train meas    : {target_train} ({train_frac:.0%})")
+    print(
+        f"  Train : {len(train_ids)} IDs, {train_meas_count} measurements ({actual_frac:.1%})"
+    )
+    print(
+        f"  Test  : {len(test_ids)} IDs, {n_total_meas - train_meas_count} measurements ({1-actual_frac:.1%})"
+    )
+
+    return {
+        "train_glaciers": train_ids,
+        "test_glaciers": test_ids,
+        "n_meas_train": int(train_meas_count),
+        "n_meas_test": int(n_total_meas - train_meas_count),
+        "actual_train_frac": float(actual_frac),
+        "sinkhorn_test_vs_region": float("nan"),
+        "sinkhorn_train_vs_region": float("nan"),
+    }
+
+
+def split_train_test_sinkhorn(
+    df_region: pd.DataFrame,
+    monthly_cols: list[str],
+    static_cols: list[str],
+    scaler_m,
+    scaler_s,
+    blur_joint: float,
+    glacier_col: str = "GLACIER",
+    id_col: str = "ID",
+    elev_diff_col: str = "ELEVATION_DIFFERENCE",
+    train_frac: float = 0.8,
+    seed: int = 0,
+    n_restarts: int = 100,
+    frac_tol: float = 0.05,
+    min_train_glaciers: int = 3,
+) -> dict:
+    """
+    Split a region into a training set and a test set using Sinkhorn divergence.
+
+    Optimised so that:
+      (1) Sinkhorn(train → test) is small  — train covers the test distribution
+      (2) |Sinkhorn(train → all) - Sinkhorn(test → all)| is small — balanced shift
+
+    Returns
+    -------
+    dict with keys:
+        train_glaciers, test_glaciers,
+        n_meas_train, n_meas_test,
+        actual_train_frac,
+        sinkhorn_train_vs_test,
+        sinkhorn_train_vs_region,
+        sinkhorn_test_vs_region,
+        blur_joint, best_seed, best_score
+    """
+    glaciers = df_region[glacier_col].unique().tolist()
+    n_glaciers = len(glaciers)
+    glacier_to_idx = {g: i for i, g in enumerate(glaciers)}
+
+    n_meas = np.array(
+        [(df_region[glacier_col] == g).sum() for g in glaciers], dtype=int
+    )
+    n_total_meas = int(n_meas.sum())
+    target_train_meas = int(round(train_frac * n_total_meas))
+
+    print(f"  Total measurements : {n_total_meas}")
+    print(f"  Target train meas  : {target_train_meas} ({train_frac:.0%})")
+    print(f"  Total glaciers     : {n_glaciers}")
+    print(f"  blur_joint         : {blur_joint:.4f}")
+
+    pure_static = [c for c in static_cols if c != elev_diff_col]
+
+    def _stake_topo(df):
+        parts = [df.groupby(id_col)[pure_static].first()]
+        if elev_diff_col in static_cols:
+            parts.append(df.groupby(id_col)[[elev_diff_col]].mean())
+        return pd.concat(parts, axis=1)[static_cols].to_numpy(dtype=np.float64)
+
+    Xm_all = scaler_m.transform(df_region[monthly_cols].to_numpy(dtype=np.float64))
+    Xs_id = scaler_s.transform(_stake_topo(df_region))
+    id_codes = pd.Categorical(df_region[id_col]).codes
+    topo_per_row = Xs_id[id_codes]
+    X_joint_all = np.hstack([Xm_all, topo_per_row]).astype(np.float32)
+
+    glacier_codes = np.array(
+        [glacier_to_idx[g] for g in df_region[glacier_col]], dtype=int
+    )
+
+    loss_fn = SamplesLoss(
+        loss="sinkhorn",
+        p=2,
+        blur=blur_joint,
+        scaling=0.9,
+        debias=True,
+        backend="tensorized",
+    )
+
+    def _sinkhorn(mask_a, mask_b, max_samples=2000):
+        Xa = X_joint_all[mask_a]
+        Xb = X_joint_all[mask_b]
+        if len(Xa) < 2 or len(Xb) < 2:
+            return 0.0
+        if len(Xa) > max_samples:
+            Xa = Xa[np.random.choice(len(Xa), max_samples, replace=False)]
+        if len(Xb) > max_samples:
+            Xb = Xb[np.random.choice(len(Xb), max_samples, replace=False)]
+        ta = torch.as_tensor(Xa, dtype=torch.float32)
+        tb = torch.as_tensor(Xb, dtype=torch.float32)
+        wa = torch.ones(len(ta)) / len(ta)
+        wb = torch.ones(len(tb)) / len(tb)
+        with torch.no_grad():
+            return float(loss_fn(wa, ta, wb, tb).item())
+
+    def _mask_for(glacier_idxs):
+        return np.isin(glacier_codes, list(glacier_idxs))
+
+    all_mask = np.ones(len(X_joint_all), dtype=bool)
+
+    best_score = np.inf
+    best_result = None
+
+    for restart in range(n_restarts):
+        rng = np.random.default_rng(seed + restart)
+        order = np.arange(n_glaciers)
+        rng.shuffle(order)
+
+        train_idxs = set()
+        test_idxs = set()
+        train_meas_count = 0
+
+        for glacier_idx in order:
+            gl_meas = int(n_meas[glacier_idx])
+            train_full = train_meas_count + gl_meas > target_train_meas * (1 + frac_tol)
+
+            if train_full:
+                test_idxs.add(glacier_idx)
+                continue
+
+            trial_train = train_idxs | {glacier_idx}
+            trial_test = test_idxs | {glacier_idx}
+
+            test_mask = _mask_for(test_idxs) if test_idxs else all_mask
+            train_mask = _mask_for(train_idxs) if train_idxs else all_mask
+
+            score_if_train = _sinkhorn(_mask_for(trial_train), test_mask) + abs(
+                _sinkhorn(_mask_for(trial_train), all_mask)
+                - _sinkhorn(test_mask, all_mask)
+            )
+            score_if_test = _sinkhorn(train_mask, _mask_for(trial_test)) + abs(
+                _sinkhorn(train_mask, all_mask)
+                - _sinkhorn(_mask_for(trial_test), all_mask)
+            )
+
+            if score_if_train <= score_if_test:
+                train_idxs.add(glacier_idx)
+                train_meas_count += gl_meas
+            else:
+                test_idxs.add(glacier_idx)
+
+        achieved_frac = train_meas_count / n_total_meas
+        if abs(achieved_frac - train_frac) > frac_tol:
+            continue
+        if len(train_idxs) < min_train_glaciers:
+            continue
+
+        train_mask = _mask_for(train_idxs)
+        test_mask = _mask_for(test_idxs)
+
+        sk_train_test = _sinkhorn(train_mask, test_mask)
+        sk_train_region = _sinkhorn(train_mask, all_mask)
+        sk_test_region = _sinkhorn(test_mask, all_mask)
+
+        score = sk_train_test + abs(sk_train_region - sk_test_region)
+
+        print(
+            f"  restart {restart:3d} | frac={achieved_frac:.2f} | "
+            f"sk(train↔test)={sk_train_test:.4f} | "
+            f"balance={abs(sk_train_region - sk_test_region):.4f} | "
+            f"score={score:.4f}"
+        )
+
+        if score < best_score:
+            best_score = score
+            best_result = {
+                "train_idxs": train_idxs,
+                "test_idxs": test_idxs,
+                "train_meas_count": train_meas_count,
+                "achieved_frac": achieved_frac,
+                "sk_train_test": sk_train_test,
+                "sk_train_region": sk_train_region,
+                "sk_test_region": sk_test_region,
+                "best_seed": seed + restart,
+            }
+
+    if best_result is None:
+        raise RuntimeError(
+            f"No valid split found within frac_tol={frac_tol} and "
+            f"min_train_glaciers={min_train_glaciers} after {n_restarts} restarts. "
+            f"Try increasing n_restarts or frac_tol."
+        )
+
+    r = best_result
+    train_glaciers = [glaciers[i] for i in r["train_idxs"]]
+    test_glaciers = [glaciers[i] for i in r["test_idxs"]]
+
+    print(f"\n  Best split (seed={r['best_seed']}):")
+    print(
+        f"  Train : {len(train_glaciers)} glaciers, {r['train_meas_count']} meas ({r['achieved_frac']:.1%})"
+    )
+    print(
+        f"  Test  : {len(test_glaciers)} glaciers, {n_total_meas - r['train_meas_count']} meas ({1 - r['achieved_frac']:.1%})"
+    )
+    print(f"  Sinkhorn(train → test)   : {r['sk_train_test']:.4f}")
+    print(f"  Sinkhorn(train → region) : {r['sk_train_region']:.4f}")
+    print(f"  Sinkhorn(test → region)  : {r['sk_test_region']:.4f}")
+    print(f"  Score                    : {best_score:.4f}")
+
+    return {
+        "train_glaciers": train_glaciers,
+        "test_glaciers": test_glaciers,
+        "n_meas_train": int(r["train_meas_count"]),
+        "n_meas_test": int(n_total_meas - r["train_meas_count"]),
+        "actual_train_frac": float(r["achieved_frac"]),
+        "sinkhorn_train_vs_test": float(r["sk_train_test"]),
+        "sinkhorn_train_vs_region": float(r["sk_train_region"]),
+        "sinkhorn_test_vs_region": float(r["sk_test_region"]),
+        "blur_joint": float(blur_joint),
+        "best_seed": int(r["best_seed"]),
+        "best_score": float(best_score),
+    }

@@ -82,6 +82,10 @@ COLORS = {
 REGION_LABELS = {
     "IT": "Italy",
     "SJM": "Svalbard",
+    "NOR": "Norway",
+    "AT": "Austria",
+    "FR": "France",
+    "ISL": "Iceland",
     "CA_12": "Central Asia 1+2",
     "CA_3": "Central Asia 3",
     "CA_4": "Central Asia 4",
@@ -89,7 +93,8 @@ REGION_LABELS = {
     "ALA_4": "Alaska 4",
     "ALA_6": "Alaska 6",
     "CENTRALASIA": "Central Asia",
-    "ALA": "Alaska (ALA)",
+    "ALA": "Alaska",
+    "CH": "Switzerland",
 }
 
 # Base folder for RGI v6 relative to cfg.dataPath (or whatever root you use)

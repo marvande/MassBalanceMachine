@@ -191,7 +191,7 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         ax.barh(y - h, topo, height=h, label="Topo", color=colors["topo"])
 
         x_pad = max(joint + climate + topo) * 0.01
-        fs = NATURE_SPECS["font_min_pt"]
+        fs = 8
         for i in range(len(regions)):
             ax.text(
                 joint[i] + x_pad, y[i] + h, f"{joint[i]:.3f}", va="center", fontsize=fs
@@ -207,8 +207,8 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         ax.set_yticklabels(regions)
         ax.set_xlabel(xlabel)
         ax.set_title(title)
-        ax.legend(frameon=False, fontsize=NATURE_SPECS["font_min_pt"])
-        apply_nature_style(ax)
+        # ax.legend(frameon=False, fontsize=12)
+        # apply_nature_style(ax)
 
     _draw_bars(
         axes[0],
@@ -235,12 +235,26 @@ def plot_domain_shift_across_regions(all_shifts: dict, src_region: str):
         title="Energy distance",
     )
 
+    fig.legend(
+        handles=[
+            mpatches.Patch(color=colors["joint"], label="Joint"),
+            mpatches.Patch(color=colors["climate"], label="Climate"),
+            mpatches.Patch(color=colors["topo"], label="Topo"),
+        ],
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.04),
+        ncol=3,
+        frameon=False,
+        fontsize=10,
+    )
+
     fig.suptitle(
         f"Domain shift: {src_region} → other regions",
-        fontsize=NATURE_SPECS["font_max_pt"] + 1,
+        fontsize=10,
         y=1.01,
     )
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+
     return fig
 
 

@@ -12,24 +12,24 @@ PARAMS_LSTM = {
     "weight_decay": 1e-05,
     "loss_name": "neutral",
     "two_heads": True,
-    "head_dropout": 0.1,
+    "head_dropout": 0,
     "loss_spec": None,
 }
 
 PARAMS_TRANSFORMER = {
     "Fm": 8,
     "Fs": 3,
-    "d_model": 128,
+    "d_model": 64,
     "nhead": 8,
-    "num_layers": 3,
-    "dim_feedforward": 128,
-    "dropout": 0.1,
+    "num_layers": 4,
+    "dim_feedforward": 256,
+    "dropout": 0.0,
     "static_layers": 2,
-    "static_hidden": 64,
-    "static_dropout": 0.0,
-    "head_dropout": 0.1,
-    "lr": 0.0005,
-    "weight_decay": 1e-05,
+    "static_hidden": 128,
+    "static_dropout": 0.1,
+    "head_dropout": 0.0,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
     "two_heads": False,
     "loss_spec": None,
     "T_max": 32,
@@ -41,12 +41,12 @@ N_EPOCHS = 150
 PARAMS_FT = {"epochs": 50, "lr_factor": 0.1}
 
 PARAMS_DAN = {
-    "epochs": 60,
-    "dan_alpha": 0.1,
     "grl_lambda": 1.0,
-    "mix_ratio_ft": 1.0,
-    "lr_backbone": 5e-5,
-    "lr_domain": 1e-4,
+    "lr_backbone": 5e-05,
+    "lr_domain": 0.0001,
+    "epochs": 60,
+    "dan_alpha": 0.05,
+    "mix_ratio_ft": 0.5,
 }
 
 # Get the best Transformer parameters:

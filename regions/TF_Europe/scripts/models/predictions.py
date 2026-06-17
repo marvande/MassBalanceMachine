@@ -563,170 +563,174 @@ def evaluate_one_model(
     return out, test_df_preds, created_fig, ax
 
 
-def evaluate_all_models(
+# def evaluate_all_models(
+#     cfg,
+#     models_by_key: dict,
+#     lstm_assets_by_key: dict,
+#     device,
+#     grid_shape=(2, 3),
+#     grid_figsize=(20, 12),
+#     ax_xlim=(-16, 9),
+#     ax_ylim=(-16, 9),
+#     complement_key=None,
+#     custom_order=None,
+# ):
+
+#     src_label = (
+#         complement_key.replace("XREG_", "").replace("_TO_", "")
+#         if complement_key
+#         else ""
+#     )
+
+#     if custom_order is None:
+#         keys = sorted(models_by_key.keys())
+#     else:
+#         keys = custom_order
+
+#     nrows, ncols = grid_shape
+#     fig_grid, axes = plt.subplots(
+#         nrows,
+#         ncols,
+#         figsize=(12, (90 * nrows) / 25.4),
+#         sharex=True,
+#         sharey=True,
+#     )
+#     axes = np.array(axes).reshape(-1)
+#     n_slots = len(axes)
+
+#     rows = []
+#     preds_by_key = {}
+#     figs_by_key = {}
+
+#     for i, key in enumerate(keys):
+#         domain_shift_key = complement_key + key
+#         model = models_by_key[domain_shift_key]
+
+#         # --- individual fig ---
+#         metrics, df_preds, fig_ind, ax_ind = evaluate_one_model(
+#             cfg=cfg,
+#             model=model,
+#             device=device,
+#             lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
+#             ax=None,
+#             ax_xlim=ax_xlim,
+#             ax_ylim=ax_ylim,
+#             title=f"{src_label} → {key} – Pred vs Truth (Test)",
+#             legend_fontsize=NATURE_SPECS["font_max_pt"],
+#         )
+
+#         metrics["key"] = domain_shift_key
+#         rows.append(metrics)
+#         preds_by_key[domain_shift_key] = df_preds
+#         figs_by_key[domain_shift_key] = fig_ind
+
+#         plt.close(fig_ind)
+
+#         # --- grid subplot ---
+#         if i < n_slots:
+#             ax_grid = axes[i]
+#             evaluate_one_model(
+#                 cfg=cfg,
+#                 model=model,
+#                 device=device,
+#                 lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
+#                 ax=ax_grid,
+#                 ax_xlim=ax_xlim,
+#                 ax_ylim=ax_ylim,
+#                 title=f"{src_label} → {key}",
+#                 legend_fontsize=NATURE_SPECS["font_max_pt"],
+#             )
+#             apply_nature_style(ax_grid, fontsize=NATURE_SPECS["font_max_pt"], box=True)
+
+#     # turn off unused axes
+#     for j in range(len(keys), n_slots):
+#         axes[j].axis("off")
+
+#     for idx, ax in enumerate(axes[:n_slots]):
+#         row = idx // ncols
+#         col = idx % ncols
+#         if row < nrows - 1:
+#             ax.set_xlabel("")
+#         if col == 0:
+#             ax.set_ylabel("Modeled PMB (m w.e.)", fontsize=NATURE_SPECS["font_max_pt"])
+#         else:
+#             ax.set_ylabel("")
+
+#     for i, ax in enumerate(axes):
+#         if i != 0:
+#             leg = ax.get_legend()
+#             if leg is not None:
+#                 leg.remove()
+
+#     # remove all per-axis legends
+#     for ax in axes[:n_slots]:
+#         leg = ax.get_legend()
+#         if leg is not None:
+#             leg.remove()
+
+#     # add a single clean figure-level legend
+#     legend_handles = [
+#         mpatches.Patch(color=mbm.plots.COLOR_ANNUAL, label="Annual"),
+#         mpatches.Patch(color=mbm.plots.COLOR_WINTER, label="Winter"),
+#     ]
+#     fig_grid.legend(
+#         handles=legend_handles,
+#         loc="lower center",
+#         bbox_to_anchor=(0.5, -0.02),
+#         ncols=2,
+#         frameon=False,
+#         fontsize=NATURE_SPECS["font_max_pt"],
+#     )
+
+#     fig_grid.suptitle(
+#         f"Zero-shot transfer performance - source: {src_label}",
+#         fontsize=NATURE_SPECS["font_max_pt"] + 3,
+#         y=0.98,
+#     )
+#     fig_grid.tight_layout(rect=[0, 0, 1, 0.98])
+
+#     df_metrics = pd.DataFrame(rows).set_index("key").sort_index()
+
+#     plt.close()
+
+#     return df_metrics, preds_by_key, figs_by_key, fig_grid
+
+
+def evaluate_all_models_metrics_only(
     cfg,
     models_by_key: dict,
     lstm_assets_by_key: dict,
     device,
-    save_dir=None,
-    grid_shape=(2, 3),
-    grid_figsize=(20, 12),
-    ax_xlim=(-16, 9),
-    ax_ylim=(-16, 9),
-    domain_shifts: dict | None = None,
     complement_key=None,
     custom_order=None,
 ):
-    if save_dir:
-        save_abs = os.path.join(save_dir)
-        os.makedirs(save_abs, exist_ok=True)
-    else:
-        save_abs = None
-
     src_label = (
         complement_key.replace("XREG_", "").replace("_TO_", "")
         if complement_key
         else ""
     )
 
-    if custom_order is None:
-        keys = sorted(models_by_key.keys())
-    else:
-        keys = custom_order
-
-    nrows, ncols = grid_shape
-    fig_grid, axes = plt.subplots(
-        nrows,
-        ncols,
-        figsize=(12, (90 * nrows) / 25.4),
-        sharex=True,
-        sharey=True,
-    )
-    axes = np.array(axes).reshape(-1)
-    n_slots = len(axes)
+    keys = custom_order if custom_order is not None else sorted(models_by_key.keys())
 
     rows = []
-    preds_by_key = {}
-    figs_by_key = {}
-
-    for i, key in enumerate(keys):
+    for key in keys:
         domain_shift_key = complement_key + key
         model = models_by_key[domain_shift_key]
 
-        # --- individual fig ---
-        metrics, df_preds, fig_ind, ax_ind = evaluate_one_model(
+        metrics, _, _, _ = evaluate_one_model(
             cfg=cfg,
             model=model,
             device=device,
             lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
             ax=None,
-            ax_xlim=ax_xlim,
-            ax_ylim=ax_ylim,
-            title=f"{src_label} → {key} – Pred vs Truth (Test)",
+            ax_xlim=(-16, 9),
+            ax_ylim=(-16, 9),
+            title="",
             legend_fontsize=NATURE_SPECS["font_max_pt"],
         )
+        plt.close("all")
 
         metrics["key"] = domain_shift_key
         rows.append(metrics)
-        preds_by_key[domain_shift_key] = df_preds
-        figs_by_key[domain_shift_key] = fig_ind
 
-        if save_abs:
-            out_png = os.path.join(save_abs, f"pred_vs_truth_{domain_shift_key}.png")
-            fig_ind.savefig(out_png, dpi=NATURE_SPECS["dpi"], bbox_inches="tight")
-        plt.close(fig_ind)
-
-        # --- grid subplot ---
-        if i < n_slots:
-            ax_grid = axes[i]
-            evaluate_one_model(
-                cfg=cfg,
-                model=model,
-                device=device,
-                lstm_assets_for_key=lstm_assets_by_key[domain_shift_key],
-                ax=ax_grid,
-                ax_xlim=ax_xlim,
-                ax_ylim=ax_ylim,
-                title=f"{src_label} → {key}",
-                legend_fontsize=NATURE_SPECS["font_max_pt"],
-            )
-            apply_nature_style(ax_grid, fontsize=NATURE_SPECS["font_max_pt"], box=True)
-
-        # --- domain shift annotation ---
-        if domain_shifts is not None and domain_shift_key in domain_shifts:
-            shift = domain_shifts[domain_shift_key]
-            txt = (
-                f"Sinkhorn joint: {shift['D_sinkhorn_joint']:.3f}\n"
-                f"clim: {shift['D_sinkhorn_climate']:.3f} | topo: {shift['D_sinkhorn_topo']:.3f}"
-            )
-            ax_grid.text(
-                0.98,
-                0.02,
-                txt,
-                transform=ax_grid.transAxes,
-                va="bottom",
-                ha="right",
-                fontsize=NATURE_SPECS["font_max_pt"] + 2,
-                color="red",
-                bbox=dict(
-                    boxstyle="round,pad=0.3",
-                    facecolor="white",
-                    alpha=0.7,
-                    edgecolor="none",
-                ),
-            )
-
-    # turn off unused axes
-    for j in range(len(keys), n_slots):
-        axes[j].axis("off")
-
-    for idx, ax in enumerate(axes[:n_slots]):
-        row = idx // ncols
-        col = idx % ncols
-        if row < nrows - 1:
-            ax.set_xlabel("")
-        if col == 0:
-            ax.set_ylabel("Modeled PMB (m w.e.)", fontsize=NATURE_SPECS["font_max_pt"])
-        else:
-            ax.set_ylabel("")
-
-    for i, ax in enumerate(axes):
-        if i != 0:
-            leg = ax.get_legend()
-            if leg is not None:
-                leg.remove()
-
-    # remove all per-axis legends
-    for ax in axes[:n_slots]:
-        leg = ax.get_legend()
-        if leg is not None:
-            leg.remove()
-
-    # add a single clean figure-level legend
-    legend_handles = [
-        mpatches.Patch(color=mbm.plots.COLOR_ANNUAL, label="Annual"),
-        mpatches.Patch(color=mbm.plots.COLOR_WINTER, label="Winter"),
-    ]
-    fig_grid.legend(
-        handles=legend_handles,
-        loc="lower center",
-        bbox_to_anchor=(0.5, -0.02),
-        ncols=2,
-        frameon=False,
-        fontsize=NATURE_SPECS["font_max_pt"],
-    )
-
-    fig_grid.suptitle(
-        f"Zero-shot transfer performance - source: {src_label}",
-        fontsize=NATURE_SPECS["font_max_pt"] + 3,
-        y=0.98,
-    )
-    fig_grid.tight_layout(rect=[0, 0, 1, 0.98])
-
-    if save_abs:
-        out_grid = os.path.join(save_abs, "pred_vs_truth_ALL_REGIONS_grid.png")
-        fig_grid.savefig(out_grid, dpi=NATURE_SPECS["dpi"], bbox_inches="tight")
-
-    df_metrics = pd.DataFrame(rows).set_index("key").sort_index()
-
-    return df_metrics, preds_by_key, figs_by_key, fig_grid
+    return pd.DataFrame(rows).set_index("key").sort_index()
