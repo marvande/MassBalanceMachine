@@ -70,13 +70,16 @@ NATURE_PALETTE = {
     "vermillion": "#d55e00",
     "reddish_purple": "#cc79a7",
 }
+
 COLORS = {
     "CH": NATURE_PALETTE["blue"],
-    "NOR": NATURE_PALETTE["vermillion"],
+    "NOR": NATURE_PALETTE["sky_blue"],
     "ISL": NATURE_PALETTE["reddish_purple"],
     "FR": NATURE_PALETTE["orange"],
-    "foundation_zs": "#aaaaaa",
-    "foundation_ft": "black",
+    "ALA_6": NATURE_PALETTE["bluish_green"],
+    "IT": NATURE_PALETTE["vermillion"],
+    "pooled_zs": "#aaaaaa",
+    "pooled_ft": "black",
 }
 
 REGION_LABELS = {
