@@ -151,22 +151,6 @@ RGI_REGIONS = {
         "countries": ["CentralAsia"],
         "era5_source": "HMA",
     },
-    "14": {
-        "name": "SouthAsiaWest",
-        "folder": "RGI_14_SouthAsiaWest",
-        "file": "14_rgi60_SouthAsiaWest.shp",
-        "code": "SOUTHASIAWEST",
-        "countries": ["SouthAsiaWest"],
-        "era5_source": "HMA",
-    },
-    "15": {
-        "name": "SouthAsiaEast",
-        "folder": "RGI_15_SouthAsiaEast",
-        "file": "15_rgi60_SouthAsiaEast.shp",
-        "code": "SOUTHASIAEAST",
-        "countries": ["SouthAsiaEast"],
-        "era5_source": "HMA",
-    },
 }
 
 AT_GLACIERS = [
