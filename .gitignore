@@ -1,7 +1,6 @@
 *.idea/
 *.idea
 
-poetry.lock
 dist
 
 __pycache__/
@@ -31,6 +30,9 @@ papers/**/logs/
 papers/**/*.csv
 # ...but keep the extra Alaska stake data (input, not generated; not in WGMS)
 !papers/Transformer_TF/PMB_sources/RGI_01_02_US_CA/01_Alaska.csv
+# Paper release only: archived result tables and the Icelandic stake inventory
+!papers/Transformer_TF/paper_results/*.csv
+!papers/Transformer_TF/PMB_sources/RGI_06_Iceland/ISL_stake_inventory.csv
 papers/**/*.png
 papers/**/*.pdf
 papers/**/*.svg
